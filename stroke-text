@@ -1516,6 +1516,9 @@ spoint (real x, real y)
 	};
 }
 
+real feed_rate = 100;
+real tolerance = 0.001;
+
 void
 text_to_gcode(string s)
 {
@@ -1524,10 +1527,9 @@ text_to_gcode(string s)
 	real height = metrics.font_ascent + metrics.font_descent + pen_size;
 	file f = File::open("test.gcode", "w");
 	real last_x = 0.0, last_y = 0.0;
-	real feed_rate = 100;
 	matrix_t m = matrix_identity();
-	m = matrix_scale(&m, 1, -1);
-	m = matrix_translate(&m, 0, height);
+	m = matrix_scale(&m, 1/64, -1/64);
+#	m = matrix_translate(&m, 0, height);
 
 	void smove(real x1, real y1)
 	{
@@ -1567,7 +1569,7 @@ text_to_gcode(string s)
 			.c = c,
 			.d = d,
 		};
-		_spline_decompose(sdraw, &spline, 0.01);
+		_spline_decompose(sdraw, &spline, tolerance**2);
 		draw(x3, y3);
 	}
 

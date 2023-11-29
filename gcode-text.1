@@ -1,11 +1,11 @@
-.TH STROKE-TEXT 1
+.TH GCODE-TEXT 1
 .SH NAME
-stroke-text \- render text as gcode
+gcode-text \- render text as gcode
 .SH SYNOPSIS
-stroke-text [options] [input files] ...
+gcode-text [options] [input files] ...
 .SH DESCRIPTION
 .PP
-\fIStroke-text\fP renders stroked text to gcode, using glyphs
+\fIGcode-text\fP renders stroked text to gcode, using glyphs
 originally derived from the Hershey fonts. Each line of text is
 rendered to separate rectangle, where rectangles may be defined
 using a gcode template or parametrically on the command line.
@@ -78,25 +78,25 @@ Specifies a single line of text
 .PP
 Draw "hello world" into a 4"x1" box at 1"x1"
 .nf
-$ stroke-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
+$ gcode-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
 .fi
 .PP
 Draw numbers starting at 1 using the sample template
 .nf
-$ stroke-text -o output.gcode -v 1 -t template
+$ gcode-text -o output.gcode -v 1 -t template
 .fi
 .PP
 Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes
 spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a
 border of 0.01" around the text:
 .nf
-$ stroke-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
+$ gcode-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
 .fi
 .SH AUTHOR
-\fIStroke-text\fP is the work of Keith Packard <keithp@keithp.com>.
+\fIGcode-text\fP is the work of Keith Packard <keithp@keithp.com>.
 .\"
 .PP
-Stroke-text is
+Gcode-text is
 .br
 Copyright 2023 Keith Packard.
 .PP

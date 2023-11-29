@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Source: https://github.org/keith-packard/stroke-text
+Upstream-Name: Stroke-text
+Upstream-Contact: Keith Packard <keithp@keithp.com>
+
+Files:
+ *
+Copyright: 2023 Keith Packard
+License: GPL-2+

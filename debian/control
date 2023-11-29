@@ -1,0 +1,15 @@
+Source: stroke-text
+Maintainer: Keith Packard <keithp@keithp.com>
+Section: graphics
+Priority: optional
+Standards-Version: 4.6.2
+Build-Depends: debhelper-compat (= 13), meson
+
+Package: stroke-text
+Architecture: all
+Depends: nickle
+Description: Render stroked text as gcode
+ Generates gcode representing the stroked version of text.
+ Text can come from files or be provided on the command line.
+ Text is drawn to rectangles provided as a gcode template or
+ on the command line.

@@ -1,7 +1,7 @@
-# Stroke Text
+# Gcode-text
 Copyright © 2023 Keith Packard
 
-Stroke-text renders text to gcode. The user defines a set of
+Gcode-text renders text to gcode. The user defines a set of
 rectangular regions, either on the command line or as a gcode template
 file. Each rectangle is then filled with text, either read from files
 or provided as command line arguments.

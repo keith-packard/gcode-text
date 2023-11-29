@@ -1529,15 +1529,24 @@ spoint (real x, real y)
 
 real feed_rate = 100;
 real tolerance = 0.001;
-real border = .5;
+real border = .1;
 string output_name = "-";
 int user_argind;
 string template_name = "";
+real start_x = 0, start_y = 0, delta_x = 4, delta_y = 1, width = 4, height = 1, columns = 1;
+real start_value, number;
+string text_value;
+bool draw_rect = false;
+bool inches = true;
+bool millimeters = false;
 
 void
 gcode_start(file f)
 {
-	File::fprintf(f, "G20\n");
+	if (millimeters)
+		File::fprintf(f, "G21\n");
+	else
+		File::fprintf(f, "G20\n");
 	File::fprintf(f, "G90\n");
 	File::fprintf(f, "G17\n");
 }
@@ -1717,7 +1726,8 @@ parse_template(string file_name)
 void
 text_into_rect(file f, rect_t rect, string line)
 {
-	gcode_rect(f, rect);
+	if (draw_rect)
+		gcode_rect(f, rect);
 	text_metrics_t metrics = text_metrics(&font, line);
 	real rect_width = rect.bottom_right.x - rect.top_left.x - border * 2;
 	real rect_height = rect.bottom_right.y - rect.top_left.y - border * 2;
@@ -1747,53 +1757,147 @@ autoload ParseArgs;
 ParseArgs::argdesc argd = {
 	.args = {
 		{
+			.var = { .arg_flag = &inches },
+			.abbr = 'i',
+			.name = "inch",
+			.expr_name = "inch",
+			.desc = "Use inch units",
+		},
+		{
+			.var = { .arg_flag = &millimeters },
+			.abbr = 'm',
+			.name = "mm",
+			.expr_name = "millimeters",
+			.desc = "Use millimeter units",
+		},
+		{
+			.var = { .arg_flag = &draw_rect },
+			.abbr = 'r',
+			.name = "rect",
+			.expr_name = "rect",
+			.desc = "Draw bounding rectangles"
+		},
+		{
 			.var = { .arg_real = &tolerance },
 			.abbr = 'f',
 			.name = "flatness",
+			.expr_name = "flatness",
 			.desc = "Spline decomposition tolerance"
 		},
 		{
 			.var = { .arg_real = &feed_rate },
 			.abbr = 's',
 			.name = "speed",
+			.expr_name = "speed",
 			.desc = "Feed rate"
 		},
 		{
 			.var = { .arg_string = &template_name },
 			.abbr = 't',
 			.name = "template",
+			.expr_name = "template",
 			.desc = "Template file name"
 		},
 		{
 			.var = { .arg_string = &output_name },
 			.abbr = 'o',
 			.name = "output",
+			.expr_name = "output",
 			.desc = "Output file name"
 		},
 		{
 			.var = { .arg_real = &border },
 			.abbr = 'b',
 			.name = "border",
+			.expr_name = "border",
 			.desc = "Border width"
+		},
+		{
+			.var = { .arg_real = &start_x },
+			.abbr = 'x',
+			.name = "start-x",
+			.expr_name = "start-x",
+			.desc = "Starting X for boxes",
+		},
+		{
+			.var = { .arg_real = &start_y },
+			.abbr = 'y',
+			.name = "start-y",
+			.expr_name = "start-y",
+			.desc = "Starting Y for boxes",
+		},
+		{
+			.var = { .arg_real = &width },
+			.abbr = 'w',
+			.name = "width",
+			.expr_name = "width",
+			.desc = "Box width",
+		},
+		{
+			.var = { .arg_real = &height },
+			.abbr = 'h',
+			.name = "height",
+			.expr_name = "height",
+			.desc = "Box height",
+		},
+		{
+			.var = { .arg_real = &delta_x },
+			.abbr = 'X',
+			.name = "delta-x",
+			.expr_name = "delta-x",
+			.desc = "X offset between boxes",
+		},
+		{
+			.var = { .arg_real = &delta_y },
+			.abbr = 'Y',
+			.name = "delta-y",
+			.expr_name = "delta-y",
+			.desc = "Y offset between boxes",
+		},
+		{
+			.var = { .arg_real = &columns },
+			.abbr = 'c',
+			.name = "columns",
+			.expr_name = "columns",
+			.desc = "Number of columns of boxes",
+		},
+		{
+			.var = { .arg_real = &start_value },
+			.abbr = 'v',
+			.name = "value",
+			.expr_name = "value",
+			.desc = "Initial text numeric value",
+		},
+		{
+			.var = { .arg_real = &number },
+			.abbr = 'n',
+			.name = "number",
+			.expr_name = "number",
+			.desc = "Number of numeric values",
+		},
+		{
+			.var = { .arg_string = &text_value },
+			.abbr = 'T',
+			.name = "text",
+			.expr_name = "string",
+			.desc = "Text string"
 		},
 	},
 	.unknown = &user_argind
 };
 
+exception done();
+
 void
 main()
 {
-	rect_t[] template = { { .top_left = { .x = 0, .y = 0 }, .bottom_right = { .x = 100, .y = 1 } } };
+	rect_t[] template;
 	ParseArgs::parseargs(&argd, &argv);
 	if (is_uninit(&user_argind))
 		user_argind = dim(argv);
 	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
 	argv = rest;
 	file output = stdout;
-
-	if (template_name != "") {
-		template = parse_template(template_name);
-	}
 
 	if (output_name == "-")
 		output = stdout;
@@ -1813,21 +1917,93 @@ main()
 			File::close(f);
 	}
 
-	int t = 0;
-	for (int i = 0; t < dim(template) && i < dim(argv); i++) {
-		twixt (file f = my_open(argv[i]); my_close(f)) {
-			while (t < dim(template) && !File::end(f)) {
-				string line = String::chump(File::fgets(f));
-				printf("%f,%f - %f,%f \"%s\"\n",
-				       template[t].top_left.x,
-				       template[t].top_left.y,
-				       template[t].bottom_right.x,
-				       template[t].bottom_right.y,
-				       line);
-				text_into_rect(output, template[t], line);
-				t++;
+	if (template_name != "")
+		template = parse_template(template_name);
+
+	string
+	next_line()
+	{
+		static file f;
+		static bool is_open = false;
+		if (!is_uninit(&start_value)) {
+			if (is_uninit(&number)) {
+				if (template_name == "")
+					if (is_open)
+						raise done();
+			} else {
+				if (number == 0)
+					raise done();
+				number--;
 			}
+			return sprintf("%f", start_value++);
+		} else if (!is_uninit(&text_value)) {
+			if (is_open)
+				raise done();
+			is_open = true;
+			return text_value;
+		} else {
+			static int i = 0;
+			if (is_open && File::end(f)) {
+				my_close(f);
+				is_open = false;
+			}
+			if (!is_open) {
+				if (i >= dim(argv))
+					raise done();
+				f = my_open(argv[i]);
+				i++;
+				is_open = true;
+			}
+			return String::chump(File::fgets(f));
 		}
+	}
+
+	rect_t
+	next_rect()
+	{
+		if (template_name != "") {
+			static int t = 0;
+			if (t == dim(template))
+				raise done();
+			return template[t++];
+		} else {
+			static int c = 0;
+			static real current_x;
+			static real current_y;
+			static bool started = false;
+			if (!started) {
+				current_x = start_x;
+				current_y = start_y;
+				started = true;
+			} else {
+				current_x += delta_x;
+				c++;
+				if (c == columns) {
+					current_x = start_x;
+					current_y += delta_y;
+					c = 0;
+				}
+			}
+			return (rect_t) {
+				.top_left = { .x = current_x, .y = current_y },
+				.bottom_right = { .x = current_x + width, .y = current_y + height }
+			};
+		}
+	}
+
+	try {
+		for (;;) {
+			string line = next_line();
+			rect_t rect = next_rect();
+			printf("%f,%f - %f,%f \"%s\"\n",
+			       rect.top_left.x,
+			       rect.top_left.y,
+			       rect.bottom_right.x,
+			       rect.bottom_right.y,
+			       line);
+			text_into_rect(output, rect, line);
+		}
+	} catch done() {
 	}
 
 	gcode_stop(output);

@@ -50,3 +50,10 @@ spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a
 border of 0.01" around the text:
 
 	$ gcode-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
+
+Draw the sample below
+
+	$ gcode-text -o sample.gcode -T "Gcode-text" -x 0 -y 0 -w 8 -h 1 -r
+
+![sample gcode output](https://github.com/keith-packard/gcode-text/blob/main/gcode-text.png?raw)
+ 

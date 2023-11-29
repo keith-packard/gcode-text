@@ -1,0 +1,114 @@
+.TH STROKE-TEXT 1
+.SH NAME
+stroke-text \- render text as gcode
+.SH SYNOPSIS
+stroke-text [options] [input files] ...
+.SH DESCRIPTION
+.PP
+\fIStroke-text\fP renders stroked text to gcode, using glyphs
+originally derived from the Hershey fonts. Each line of text is
+rendered to separate rectangle, where rectangles may be defined
+using a gcode template or parametrically on the command line.
+.PP
+The source text may come from text files or from command line
+arguments.
+.SH USAGE
+.PP
+An un-flagged argument is treated as an input file.
+.PP
+Options are as follows:
+.TP
+.B "--help,--usage"
+Print a help/usage message and exit.
+.TP
+.BI "-i,--inch "
+Use inch units in the generated file. This is the default.
+.TP
+.BI "-m,--mm"
+Use millimeter units in the generated file.
+.TP
+.BI "-f,--flatness " flatness
+Set the spline decomposition tolerance in output units. The default is
+0.001.
+.TP
+.BI "-s,--speed " speed
+Set the feed rate
+.TP
+.BI "-t,--template " template
+Specifies a gcode template file. The bounding box of each separate
+polygon in the template specifies a region for one line of text.
+.TP
+.BI "-o,--output " output
+Specifies the output file name.
+.TP
+.BI "-b,--border " border
+Defines the minimum space between text and each bounding
+box. The default is 0.1.
+.TP
+.BI "-x,--start-x " start-x
+Defines the starting X location for parametrically generated boxes.
+.TP
+.BI "-y,--start-y " start-y
+Defines the starting Y location for parametrically generated boxes.
+.TP
+.BI "-w,--width " width
+Defines the width for parametrically generated boxes.
+.TP
+.BI "-h,--height " height
+Defines the height for parametrically generated boxes.
+.TP
+.BI "-X,--delta-x " delta-x
+Defines the X offset between parametrically generated boxes.
+.TP
+.BI "-Y,--delta-y " delta-y
+Defines the Y offset between parametrically generated boxes.
+.TP
+.BI "-c,--columns " columns
+Defines the number of columns of parametrically generated boxes.
+.TP
+.BI "-v,--value " value
+Sets an initial numeric value for generated text.
+.TP
+.BI "-n,--number " number
+Specifies the number of generated numeric text values
+.TP
+.BI "-T,--text " string
+Specifies a single line of text
+.SH EXAMPLES
+.PP
+Draw "hello world" into a 4"x1" box at 1"x1"
+.nf
+$ stroke-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
+.fi
+.PP
+Draw numbers starting at 1 using the sample template
+.nf
+$ stroke-text -o output.gcode -v 1 -t template
+.fi
+.PP
+Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes
+spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a
+border of 0.01" around the text:
+.nf
+$ stroke-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
+.fi
+.SH AUTHOR
+\fIStroke-text\fP is the work of Keith Packard <keithp@keithp.com>.
+.\"
+.PP
+Stroke-text is
+.br
+Copyright 2023 Keith Packard.
+.PP
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 2 of the License, or
+(at your option) any later version.
+.PP
+This program is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+General Public License for more details.
+.PP
+You should have received a copy of the GNU General Public License along
+with this program; if not, write to the Free Software Foundation, Inc.,

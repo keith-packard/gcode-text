@@ -15,7 +15,7 @@ the Free Software Foundation, either version 2 of the License, or
 
 ## Usage
 
-	stroke-text: usage: stroke-text <options> [--] file ...
+	gcode-text: usage: gcode-text <options> [--] file ...
 	    -i,--inch                  Use inch units
 	    -m,--mm                    Use millimeter units
 	    -r,--rect                  Draw bounding rectangles
@@ -39,14 +39,14 @@ the Free Software Foundation, either version 2 of the License, or
 
 Draw "hello world" into a 4"x1" box at 1"x1"
 
-	$ stroke-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
+	$ gcode-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
 
 Draw numbers starting at 1 using the sample template
 
-	$ stroke-text -o output.gcode -v 1 -t template
+	$ gcode-text -o output.gcode -v 1 -t template
 
 Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes
 spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a
 border of 0.01" around the text:
 
-	$ stroke-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
+	$ gcode-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01

@@ -1316,6 +1316,17 @@ typedef struct {
 	spoint_t    a, b, c, d;
 } spline_t;
 
+typedef struct {
+	spoint_t	top_left;
+	spoint_t	bottom_right;
+} rect_t;
+
+bool
+rect_is_empty(*rect_t r)
+{
+	return r->top_left.x >= r->bottom_right.x || r->top_left.y >= r->bottom_right.y;
+}
+
 void
 _lerp_half (*spoint_t a, *spoint_t b, *spoint_t result)
 {
@@ -1518,43 +1529,73 @@ spoint (real x, real y)
 
 real feed_rate = 100;
 real tolerance = 0.001;
+real border = .5;
+string output_name = "-";
+int user_argind;
+string template_name = "";
 
 void
-text_to_gcode(string s)
+gcode_start(file f)
 {
-	text_metrics_t metrics = text_metrics(&font, s);
-	real width = metrics.width + pen_size;
-	real height = metrics.font_ascent + metrics.font_descent + pen_size;
-	file f = File::open("test.gcode", "w");
-	real last_x = 0.0, last_y = 0.0;
-	matrix_t m = matrix_identity();
-	m = matrix_scale(&m, 1/64, -1/64);
-#	m = matrix_translate(&m, 0, height);
+	File::fprintf(f, "G20\n");
+	File::fprintf(f, "G90\n");
+	File::fprintf(f, "G17\n");
+}
 
-	void smove(real x1, real y1)
-	{
-		File::fprintf(f, "G00 X%f Y%f\n", x1, y1);
-	}
+void
+gcode_stop(file f)
+{
+	File::fprintf(f, "M30\n");
+}
+
+void
+gcode_move(file f, real x, real y)
+{
+	File::fprintf(f, "G00 X%f Y%f\n", x, y);
+}
+
+void
+gcode_draw(file f, real x, real y)
+{
+	File::fprintf(f, "G01 X%f Y%f F%f\n", x, y, feed_rate);
+}
+
+void
+gcode_rect(file f, rect_t r)
+{
+	gcode_move(f, r.top_left.x, r.top_left.y);
+	gcode_draw(f, r.bottom_right.x, r.top_left.y);
+	gcode_draw(f, r.bottom_right.x, r.bottom_right.y);
+	gcode_draw(f, r.top_left.x, r.bottom_right.y);
+	gcode_draw(f, r.top_left.x, r.top_left.y);
+}
+
+void
+text_to_gcode(file f, matrix_t m, string s)
+{
+	real last_x = 0.0, last_y = 0.0;
+
+	m = matrix_scale(&m, 1, -1);
 
 	void move(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
-		smove(p.x, p.y);
+		gcode_move(f, p.x, p.y);
 		last_x = x1;
 		last_y = y1;
-	}
-
-	void sdraw(real x1, real y1)
-	{
-		File::fprintf(f, "G01 X%f Y%f F%f\n", x1, y1, feed_rate);
 	}
 
 	void draw(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
-		sdraw(p.x, p.y);
+		gcode_draw(f, p.x, p.y);
 		last_x = x1;
 		last_y = y1;
+	}
+
+	void sdraw(real x, real y)
+	{
+		gcode_draw(f, x, y);
 	}
 
 	void curve(real x1, real y1, real x2, real y2, real x3, real y3)
@@ -1570,7 +1611,9 @@ text_to_gcode(string s)
 			.d = d,
 		};
 		_spline_decompose(sdraw, &spline, tolerance**2);
-		draw(x3, y3);
+		gcode_draw(f, d.x, d.y);
+		last_x = x3;
+		last_y = y3;
 	}
 
 	draw_calls_t gcode_calls = {
@@ -1579,60 +1622,219 @@ text_to_gcode(string s)
 		.curve = curve
 	};
 
-	File::fprintf(f, "G20\n");
-	File::fprintf(f, "G90\n");
-	File::fprintf(f, "G17\n");
-
 	text_path(&font, s, &gcode_calls);
 
-	File::fprintf(f, "M30\n");
-
-	File::close(f);
 }
 
-#autoload Cairo;
-#
-#void
-#text_to_svg(string s)
-#{
-#	text_metrics_t metrics = text_metrics(&font, s);
-#	real width = metrics.width + pen_size;
-#	real height = metrics.font_ascent + metrics.font_descent + pen_size;
-#	Cairo::cairo_t	cr = Cairo::new_svg("test.svg", width, height);
-#
-#	Cairo::set_source_rgba(cr, 1, 1, 1, 1);
-#	Cairo::paint(cr);
-#	Cairo::set_source_rgba(cr, 0, 0, 0, 1);
-#	Cairo::set_line_width(cr, pen_size);
-#	Cairo::set_line_cap(cr, Cairo::line_cap_t.ROUND);
-#	Cairo::translate(cr, pen_size/2, metrics.font_ascent + pen_size /2);
-#
-#	void move(real x1, real y1)
-#	{
-#		Cairo::move_to(cr, x1, y1);
-#	}
-#
-#	void draw(real x1, real y1)
-#	{
-#		Cairo::line_to(cr, x1, y1);
-#	}
-#
-#	void curve(real x1, real y1, real x2, real y2, real x3, real y3)
-#	{
-#		Cairo::curve_to(cr, x1, y1, x2, y2, x3, y3);
-#	}
-#
-#	draw_calls_t svg_calls = {
-#		.move = move,
-#		.draw = draw,
-#		.curve = curve
-#	};
-#
-#	text_path(&font, s, &svg_calls);
-#
-#	Cairo::stroke(cr);
-#
-#	Cairo::Surface::finish(Cairo::get_target(cr));
-#	Cairo::destroy(cr);
-#}
-#
+typedef struct {
+	int	letter;
+	real	value;
+} token_t;
+
+token_t
+read_token(file f)
+{
+	int letter;
+
+	do {
+		letter = File::getc(f);
+	} while (letter < 'A' || 'Z' < letter);
+	real value;
+	File::fscanf(f, " %f", &value);
+	return (token_t) {
+		.letter = letter,
+		.value = value
+	};
+}
+
+rect_t[...]
+parse_template(string file_name)
+{
+	int code = -1;
+	rect_t[...] ret = {};
+	rect_t cur = {
+		.top_left = { .x = 0, .y = 0 },
+		.bottom_right = { .x = 0, .y = 0 }
+	};
+
+	void add_rect() {
+		if (!rect_is_empty(&cur)) {
+			ret[dim(ret)] = cur;
+		}
+		cur = (rect_t) {
+			.top_left = { .x = 0, .y = 0 },
+			.bottom_right = { .x = 0, .y = 0 }
+		};
+	}
+
+	twixt(file f = File::open(file_name, "r"); File::close(f)) {
+		real x, y;
+		for (;;) {
+			try {
+				token_t token = read_token(f);
+				switch (token.letter) {
+				case 'G':
+					code = floor(token.value);
+					break;
+				case 'X':
+					x = token.value;
+					switch (code) {
+					case 0:
+						add_rect();
+						cur.top_left.x = x;
+						cur.bottom_right.x = x;
+						break;
+					case 1:
+						cur.top_left.x = min(cur.top_left.x, x);
+						cur.bottom_right.x = max(cur.bottom_right.x, x);
+						break;
+					}
+					break;
+				case 'Y':
+					y = token.value;
+					switch (code) {
+					case 0:
+						add_rect();
+						cur.top_left.y = y;
+						cur.bottom_right.y = y;
+						break;
+					case 1:
+						cur.top_left.y = min(cur.top_left.y, y);
+						cur.bottom_right.y = max(cur.bottom_right.y, y);
+						break;
+					}
+					break;
+				}
+			} catch File::io_eof(file f) {
+				add_rect();
+				break;
+			}
+		}
+	}
+	return ret;
+}
+
+void
+text_into_rect(file f, rect_t rect, string line)
+{
+	gcode_rect(f, rect);
+	text_metrics_t metrics = text_metrics(&font, line);
+	real rect_width = rect.bottom_right.x - rect.top_left.x - border * 2;
+	real rect_height = rect.bottom_right.y - rect.top_left.y - border * 2;
+	real text_width = metrics.right_side_bearing - metrics.left_side_bearing;
+	real text_height = metrics.ascent + metrics.descent;
+	real scale = 0.0;
+	matrix_t matrix = matrix_identity();
+
+	/* Check aspect ratios to pick which to use for scale */
+	if (text_width / text_height > rect_width / rect_height) {
+		scale = rect_width / text_width;
+	} else {
+		scale = rect_height / text_height;
+	}
+
+	text_width = text_width * scale;
+	text_height = text_height * scale;
+	real text_off_x = (rect_width - text_width) / 2;
+	real text_off_y = (rect_height - text_height) / 2;
+	matrix = matrix_translate(&matrix, text_off_x + rect.top_left.x + border, text_off_y + rect.top_left.y + border);
+	matrix = matrix_scale(&matrix, scale, scale);
+	text_to_gcode(f, matrix, line);
+}
+
+autoload ParseArgs;
+
+ParseArgs::argdesc argd = {
+	.args = {
+		{
+			.var = { .arg_real = &tolerance },
+			.abbr = 'f',
+			.name = "flatness",
+			.desc = "Spline decomposition tolerance"
+		},
+		{
+			.var = { .arg_real = &feed_rate },
+			.abbr = 's',
+			.name = "speed",
+			.desc = "Feed rate"
+		},
+		{
+			.var = { .arg_string = &template_name },
+			.abbr = 't',
+			.name = "template",
+			.desc = "Template file name"
+		},
+		{
+			.var = { .arg_string = &output_name },
+			.abbr = 'o',
+			.name = "output",
+			.desc = "Output file name"
+		},
+		{
+			.var = { .arg_real = &border },
+			.abbr = 'b',
+			.name = "border",
+			.desc = "Border width"
+		},
+	},
+	.unknown = &user_argind
+};
+
+void
+main()
+{
+	rect_t[] template = { { .top_left = { .x = 0, .y = 0 }, .bottom_right = { .x = 100, .y = 1 } } };
+	ParseArgs::parseargs(&argd, &argv);
+	if (is_uninit(&user_argind))
+		user_argind = dim(argv);
+	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
+	argv = rest;
+	file output = stdout;
+
+	if (template_name != "") {
+		template = parse_template(template_name);
+	}
+
+	if (output_name == "-")
+		output = stdout;
+	else
+		output = File::open(output_name, "w");
+
+	gcode_start(output);
+
+	file my_open(string name) {
+		if (name == "-")
+			return stdin;
+		return File::open(name, "r");
+	}
+
+	void my_close(file f) {
+		if (f != stdin)
+			File::close(f);
+	}
+
+	int t = 0;
+	for (int i = 0; t < dim(template) && i < dim(argv); i++) {
+		twixt (file f = my_open(argv[i]); my_close(f)) {
+			while (t < dim(template) && !File::end(f)) {
+				string line = String::chump(File::fgets(f));
+				printf("%f,%f - %f,%f \"%s\"\n",
+				       template[t].top_left.x,
+				       template[t].top_left.y,
+				       template[t].bottom_right.x,
+				       template[t].bottom_right.y,
+				       line);
+				text_into_rect(output, template[t], line);
+				t++;
+			}
+		}
+	}
+
+	gcode_stop(output);
+	if (output != stdout)
+		File::close(output);
+
+	exit(0);
+}
+
+main();

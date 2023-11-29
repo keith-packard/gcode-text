@@ -1,11 +1,11 @@
-Source: stroke-text
+Source: gcode-text
 Maintainer: Keith Packard <keithp@keithp.com>
 Section: graphics
 Priority: optional
 Standards-Version: 4.6.2
 Build-Depends: debhelper-compat (= 13), meson
 
-Package: stroke-text
+Package: gcode-text
 Architecture: all
 Depends: nickle
 Description: Render stroked text as gcode

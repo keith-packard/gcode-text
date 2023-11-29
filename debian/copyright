@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Source: https://github.org/keith-packard/stroke-text
-Upstream-Name: Stroke-text
+Source: https://github.org/keith-packard/gcode-text
+Upstream-Name: gcode-text
 Upstream-Contact: Keith Packard <keithp@keithp.com>
 
 Files:

@@ -1,5 +1,5 @@
-stroke-text (0.1-1) unstable; urgency=medium
+gcode-text (0.1-1) unstable; urgency=medium
 
   * Initial release. (Closes: #123456)
 
- -- Keith Packard <keithp@keithp.com>  Wed, 29 Nov 2023 11:32:18 -0800
+ -- Keith Packard <keithp@keithp.com>  Wed, 29 Nov 2023 12:04:50 -0800

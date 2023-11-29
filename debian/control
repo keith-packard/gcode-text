@@ -3,11 +3,15 @@ Maintainer: Keith Packard <keithp@keithp.com>
 Section: graphics
 Priority: optional
 Standards-Version: 4.6.2
+Homepage: https://keithp.com/cgit/gcode-text.git
+Vcs-Git: https://keithp.com/cgit/gcode-text.git
+Vcs-Browser: https://keithp.com/cgit/gcode-text
+Rules-Requires-Root: no
 Build-Depends: debhelper-compat (= 13), meson
 
 Package: gcode-text
 Architecture: all
-Depends: nickle
+Depends: nickle, ${misc:Depends}
 Description: Render stroked text as gcode
  Generates gcode representing the stroked version of text.
  Text can come from files or be provided on the command line.

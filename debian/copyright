@@ -1,5 +1,5 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Source: https://github.org/keith-packard/gcode-text
+Source: https://keithp.com/cgit/gcode-text.git
 Upstream-Name: gcode-text
 Upstream-Contact: Keith Packard <keithp@keithp.com>
 
@@ -7,3 +7,6 @@ Files:
  *
 Copyright: 2023 Keith Packard
 License: GPL-2+
+ This program is licensed under the GPL version 2 or later.
+ Please see the file /usr/share/common-licenses/GPL-2 for
+ license terms.

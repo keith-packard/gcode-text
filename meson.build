@@ -19,4 +19,9 @@ configure_file(input: 'gcode-text.5c',
 
 install_man('gcode-text.1')
 
-install_data('device-default.json')
+device_files = [
+  'device-default.json',
+  'svg.json'
+  ]
+
+install_data(device_files)

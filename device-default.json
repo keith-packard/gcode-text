@@ -1,8 +1,11 @@
 {
     "start" : "G90\nG17\n",
+    "bounds" : "false",
     "inch" : "G20\n",
     "mm" : "G10\n",
     "move" : "G00 X%f Y%f\n",
     "draw" : "G01 X%f Y%f F%f\n",
+    "speed" : "true",
+    "y-invert" : "true",
     "stop" : "M30\n"
 }

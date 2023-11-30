@@ -111,7 +111,13 @@ configuration file (or if no configuration file is provided), the
 default values shown below will be used instead.
 .TP
 .BI "start " "G90\\\\\\\\nG17\\\\\\\\n"
-Specifies a string emitted before any drawing is done to set up the target.
+Specifies a string emitted before any drawing is done to set up the
+target.
+.TP
+.BI "bounds " "\"\""
+Specifies a C-style printf format for outputing the width (the first
+%f) and height (the second %f) values to the resulting file. If the
+string is empty, this element is skipped.
 .TP
 .BI "inch " "G20\\\\\\\\n"
 Specifies the string to place the device in "inch" mode.
@@ -129,6 +135,14 @@ Specifies a C-style printf format for drawing a straight line. This
 format should contain two or three %f instances, the first is used for the X
 coordinate, the second for Y, the (optional) third is used for
 speed (aka feed rate).
+.TP
+.BI "speed " "true or false"
+Indicates whether the draw element includes the third %f required for
+the speed.
+.TP
+.BI "y-invert " "true or false"
+Indicates whether y values indicate upwards (true) or downwards
+(false) motion.
 .TP
 .BI "stop " "M30\\\\\\\\n"
 Specifies the string emitted after all drawing is done.

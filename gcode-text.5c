@@ -1547,15 +1547,21 @@ typedef struct {
 	string	inch;
 	string	mm;
 	string	move;
+	string	bounds;
+	bool	speed;
+	bool	y_invert;
 	string	draw;
 	string	stop;
 } device_t;
 
 device_t	device = {
 	.start = "G90\nG17\n",
+	.bounds = "",
 	.inch = "G20\n",
 	.mm = "G21\n",
 	.move = "G00 X%f Y%f\n",
+	.speed = true,
+	.y_invert = true,
 	.draw = "G01 X%f Y%f F%f\n",
 	.stop = "M30\n"
 };
@@ -1587,13 +1593,79 @@ whole_file(string file_name)
 	return ret;
 }
 
-exception invalid_device(string name);
+exception invalid_device(string name, string expected, string got, poly value);
 
 string
-get_value(poly[string] h, string key, string def)
+json_typeof(poly value)
 {
-	if (hash_test(h, key))
-		return h[key];
+	switch (value) {
+	case true:
+	case "true":
+		return "true";
+	case false:
+	case "false":
+		return "false";
+	case <>:
+	case "null":
+		return "null";
+	default:
+		break;
+	}
+	if (is_string(value))
+		return "string";
+	if (is_number(value))
+		return "number";
+	if (is_hash(value))
+		return "object";
+	if (is_array(value))
+		return "array";
+	return "unknown";
+}
+
+string
+get_string(poly[string] h, string key, string def)
+{
+	if (hash_test(h, key)) {
+		try {
+			string s = h[key];
+			return s;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "string", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
+bool
+get_bool(poly[string] h, string key, bool def)
+{
+	if (hash_test(h, key)) {
+		poly value = h[key];
+		switch (value) {
+		case true:
+		case "true":
+			return true;
+		case false:
+		case "false":
+			return false;
+		default:
+			raise invalid_device(key, "bool", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
+real
+get_number(poly[string] h, string key, real def)
+{
+	if (hash_test(h, key)) {
+		try {
+			real v = h[key];
+			return v;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "number", json_typeof(value), value);
+		}
+	}
 	return def;
 }
 
@@ -1602,18 +1674,28 @@ load_device(string name)
 {
 	poly p = JSON::from_json(whole_file(name));
 	poly[string] h = p;
-	device.start = get_value(h, "start", device.start);
-	device.inch = get_value(h, "inch", device.inch);
-	device.mm = get_value(h, "mm", device.mm);
-	device.move = get_value(h, "move", device.move);
-	device.draw = get_value(h, "draw", device.draw);
-	device.stop = get_value(h, "stop", device.stop);
+	try {
+		device.start = get_string(h, "start", device.start);
+		device.bounds = get_string(h, "bounds", device.bounds);
+		device.inch = get_string(h, "inch", device.inch);
+		device.mm = get_string(h, "mm", device.mm);
+		device.move = get_string(h, "move", device.move);
+		device.draw = get_string(h, "draw", device.draw);
+		device.speed = get_bool(h, "speed", device.speed);
+		device.y_invert = get_bool(h, "y-invert", device.y_invert);
+		device.stop = get_string(h, "stop", device.stop);
+	} catch invalid_device(string key, string expected, string got, poly value) {
+		File::fprintf(stderr, "%s: invalid value for \"%s\". Expected %s. Got %s (%v).\n", name, key, expected, got, value);
+		exit(1);
+	}
 }
 
 void
 gcode_start(file f)
 {
 	File::fprintf(f, "%s", device.start);
+	if (device.bounds != "")
+		File::fprintf(f, device.bounds, width, height);
 	if (millimeters)
 		File::fprintf(f, "%s", device.mm);
 	else
@@ -1649,10 +1731,10 @@ count_percent(string x)
 void
 gcode_draw(file f, real x, real y)
 {
-	if (count_percent(device.draw) == 2)
-		File::fprintf(f, device.draw, x, y);
-	else
+	if (device.speed)
 		File::fprintf(f, device.draw, x, y, feed_rate);
+	else
+		File::fprintf(f, device.draw, x, y);
 }
 
 void
@@ -1669,8 +1751,6 @@ void
 text_to_gcode(file f, matrix_t m, string s)
 {
 	real last_x = 0.0, last_y = 0.0;
-
-	m = matrix_scale(&m, 1, -1);
 
 	void move(real x1, real y1)
 	{
@@ -1835,6 +1915,10 @@ text_into_rect(file f, rect_t rect, string line)
 	real text_off_y = (rect_height - text_height) / 2;
 	matrix = matrix_translate(&matrix, text_off_x + rect.top_left.x + border, text_off_y + rect.top_left.y + border);
 	matrix = matrix_scale(&matrix, scale, scale);
+	if (device.y_invert)
+		matrix = matrix_scale(&matrix, 1, -1);
+	else
+		matrix = matrix_translate(&matrix, 0, metrics.ascent);
 	text_to_gcode(f, matrix, line);
 }
 
@@ -2006,8 +2090,6 @@ main()
 	else
 		output = File::open(output_name, "w");
 
-	gcode_start(output);
-
 	file my_open(string name) {
 		if (name == "-")
 			return stdin;
@@ -2022,8 +2104,7 @@ main()
 	if (template_name != "")
 		template = parse_template(template_name);
 
-	string
-	next_line()
+	string next_line()
 	{
 		static file f;
 		static bool is_open = false;
@@ -2092,6 +2173,8 @@ main()
 			};
 		}
 	}
+
+	gcode_start(output);
 
 	try {
 		for (;;) {

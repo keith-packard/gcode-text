@@ -1,0 +1,8 @@
+{
+    "start" : "G90\nG17\n",
+    "inch" : "G20\n",
+    "mm" : "G10\n",
+    "move" : "G00 X%f Y%f\n",
+    "draw" : "G01 X%f Y%f F%f\n",
+    "stop" : "M30\n"
+}

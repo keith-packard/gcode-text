@@ -1,3 +1,9 @@
+gcode-text (0.2-1) unstable; urgency=medium
+
+  * Add device config file support.
+
+ -- Keith Packard <keithp@keithp.com>  Wed, 29 Nov 2023 17:36:28 -0800
+
 gcode-text (0.1-1) unstable; urgency=medium
 
   * Initial release. (Closes: #123456)

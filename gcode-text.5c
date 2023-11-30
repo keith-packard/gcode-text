@@ -1401,8 +1401,8 @@ _distance_to_line_squared (*spoint_t p, *spoint_t p1, *spoint_t p2)
 
 /*
  * Return an upper bound on the error (squared) that could
- * result from approximating a spline as a line segment 
- * connecting the two endpoints 
+ * result from approximating a spline as a line segment
+ * connecting the two endpoints
  */
 
 real
@@ -1512,7 +1512,7 @@ matrix_point (&matrix_t m, spoint_t p)
 spoint_t
 matrix_distance (&matrix_t m, spoint_t p)
 {
-	return (spoint_t) { 
+	return (spoint_t) {
 		.x = m.xx * p.x + m.yx * p.y,
 		.y = m.xy * p.x + m.yy * p.y
 	};
@@ -1533,40 +1533,126 @@ real border = .1;
 string output_name = "-";
 int user_argind;
 string template_name = "";
+string device_name = "";
 real start_x = 0, start_y = 0, delta_x = 4, delta_y = 1, width = 4, height = 1, columns = 1;
 real start_value, number;
 string text_value;
 bool draw_rect = false;
 bool inches = true;
 bool millimeters = false;
+string share_dir = "@SHARE_DIR@";
+
+typedef struct {
+	string	start;
+	string	inch;
+	string	mm;
+	string	move;
+	string	draw;
+	string	stop;
+} device_t;
+
+device_t	device = {
+	.start = "G90\nG17\n",
+	.inch = "G20\n",
+	.mm = "G21\n",
+	.move = "G00 X%f Y%f\n",
+	.draw = "G01 X%f Y%f F%f\n",
+	.stop = "M30\n"
+};
+
+autoload JSON;
+
+file
+device_open(string name)
+{
+	file f;
+	try {
+		f = File::open(name, "r");
+	} catch File::open_error(string message, File::error_type error, string name) {
+		f = File::open(share_dir + "/" + name, "r");
+	}
+	return f;
+}
+
+string
+whole_file(string file_name)
+{
+	string	ret = "";
+	twixt(file f = device_open(device_name); File::close(f)) {
+		while (!File::end(f)) {
+			string line = File::fgets(f);
+			ret = ret + line;
+		}
+	}
+	return ret;
+}
+
+exception invalid_device(string name);
+
+string
+get_value(poly[string] h, string key, string def)
+{
+	if (hash_test(h, key))
+		return h[key];
+	return def;
+}
+
+void
+load_device(string name)
+{
+	poly p = JSON::from_json(whole_file(name));
+	poly[string] h = p;
+	device.start = get_value(h, "start", device.start);
+	device.inch = get_value(h, "inch", device.inch);
+	device.mm = get_value(h, "mm", device.mm);
+	device.move = get_value(h, "move", device.move);
+	device.draw = get_value(h, "draw", device.draw);
+	device.stop = get_value(h, "stop", device.stop);
+}
 
 void
 gcode_start(file f)
 {
+	File::fprintf(f, "%s", device.start);
 	if (millimeters)
-		File::fprintf(f, "G21\n");
+		File::fprintf(f, "%s", device.mm);
 	else
-		File::fprintf(f, "G20\n");
-	File::fprintf(f, "G90\n");
-	File::fprintf(f, "G17\n");
+		File::fprintf(f, "%s", device.inch);
 }
 
 void
 gcode_stop(file f)
 {
-	File::fprintf(f, "M30\n");
+	File::fprintf(f, "%s", device.stop);
 }
 
 void
 gcode_move(file f, real x, real y)
 {
-	File::fprintf(f, "G00 X%f Y%f\n", x, y);
+	File::fprintf(f, device.move, x, y);
+}
+
+int
+count_percent(string x)
+{
+	int n = 0;
+	int l = String::length(x);
+	for (int i = 0; i < l; i++)
+		if (x[i] == '%') {
+			i++;
+			if (i == l || x[i] != '%')
+				n++;
+		}
+	return n;
 }
 
 void
 gcode_draw(file f, real x, real y)
 {
-	File::fprintf(f, "G01 X%f Y%f F%f\n", x, y, feed_rate);
+	if (count_percent(device.draw) == 2)
+		File::fprintf(f, device.draw, x, y);
+	else
+		File::fprintf(f, device.draw, x, y, feed_rate);
 }
 
 void
@@ -1799,6 +1885,12 @@ ParseArgs::argdesc argd = {
 			.desc = "Template file name"
 		},
 		{
+			.var = { .arg_string = &device_name },
+			.abbr = 'd',
+			.name = "device",
+			.desc = "Device config file"
+		},
+		{
 			.var = { .arg_string = &output_name },
 			.abbr = 'o',
 			.name = "output",
@@ -1882,6 +1974,13 @@ ParseArgs::argdesc argd = {
 			.expr_name = "string",
 			.desc = "Text string"
 		},
+		{
+			.var = { .arg_string = &share_dir },
+			.abbr = 'C',
+			.name = "config-dir",
+			.expr_name = "dir",
+			.desc = "Directory containing device configuration files"
+		},
 	},
 	.unknown = &user_argind
 };
@@ -1898,6 +1997,9 @@ main()
 	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
 	argv = rest;
 	file output = stdout;
+
+	if (device_name != "")
+		load_device(device_name);
 
 	if (output_name == "-")
 		output = stdout;

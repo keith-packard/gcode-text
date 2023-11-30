@@ -1540,6 +1540,7 @@ string text_value;
 bool draw_rect = false;
 bool inches = true;
 bool millimeters = false;
+string share_dir = "@SHARE_DIR@";
 
 typedef struct {
 	string	start;
@@ -1561,11 +1562,23 @@ device_t	device = {
 
 autoload JSON;
 
+file
+device_open(string name)
+{
+	file f;
+	try {
+		f = File::open(name, "r");
+	} catch File::open_error(string message, File::error_type error, string name) {
+		f = File::open(share_dir + "/" + name, "r");
+	}
+	return f;
+}
+
 string
 whole_file(string file_name)
 {
 	string	ret = "";
-	twixt(file f = File::open(device_name, "r"); File::close(f)) {
+	twixt(file f = device_open(device_name); File::close(f)) {
 		while (!File::end(f)) {
 			string line = File::fgets(f);
 			ret = ret + line;
@@ -1960,6 +1973,13 @@ ParseArgs::argdesc argd = {
 			.name = "text",
 			.expr_name = "string",
 			.desc = "Text string"
+		},
+		{
+			.var = { .arg_string = &share_dir },
+			.abbr = 'C',
+			.name = "config-dir",
+			.expr_name = "dir",
+			.desc = "Directory containing device configuration files"
 		},
 	},
 	.unknown = &user_argind

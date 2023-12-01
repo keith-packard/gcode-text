@@ -49,6 +49,10 @@ Specifies a device template file. This is a JSON file containing
 definitions for drawing to the target. See the DEVICE SPEC section
 below.
 .TP
+.BI "-S,--settings " setting,...
+Specifies a comma-separated list of device-specific settings. See
+the "settings" and "setting-values" items in the DEVICE SPEC section below.
+.TP
 .BI "-o,--output " output
 Specifies the output file name.
 .TP
@@ -120,10 +124,14 @@ default values shown below will be used instead.
 Specifies a string emitted before any drawing is done to set up the
 target.
 .TP
-.BI "bounds " "\"\""
-Specifies a C-style printf format for outputing the width (the first
-%f) and height (the second %f) values to the resulting file. If the
-string is empty, this element is skipped.
+.BI "settings " "\"\""
+Specifies a C-style printf format for outputing device-specific
+settings. If the string is empty, this element is skipped.
+.TP
+.BI "setting-values " "\"\""
+Specifies an array of strings, one for each %s value present in the
+"settings" value. These can be replaced on the command line using
+the --settings option.
 .TP
 .BI "inch " "G20\\\\\\\\n"
 Specifies the string to place the device in "inch" mode.

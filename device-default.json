@@ -1,6 +1,6 @@
 {
     "start" : "G90\nG17\n",
-    "bounds" : "false",
+    "settings" : "",
     "inch" : "G20\n",
     "mm" : "G10\n",
     "move" : "G00 X%f Y%f\n",

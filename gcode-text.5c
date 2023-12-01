@@ -1612,6 +1612,7 @@ bool draw_rect = false;		/* --rect */
 bool inches = true;		/* --inches */
 bool millimeters = false;	/* --mm */
 string share_dir = "@SHARE_DIR@"; /* --config-dir */
+string settings = "";		/* --settings */
 bool version = false;		/* --version */
 bool oblique = false;		/* --oblique */
 
@@ -1624,7 +1625,8 @@ int user_argind;
  */
 typedef struct {
 	string	start;		/* start string */
-	string	bounds;		/* bounds format, given width and height */
+	string	settings;	/* settings format, given settings_values */
+	string[]setting_values;	/* value for each setting */
 	string	inch;		/* set inch mode */
 	string	mm;		/* set mm mode */
 	string	move;		/* move format, given X and Y */
@@ -1636,7 +1638,8 @@ typedef struct {
 
 device_t	device = {
 	.start = "G90\nG17\n",		/* absolute mode, XY plane */
-	.bounds = "",
+	.settings = "",			/* Settings setting_values... */
+	.setting_values = (string[0]) {},/* No settings values by default */
 	.inch = "G20\n",		/* inches mode */
 	.mm = "G21\n",			/* mm mode */
 	.move = "G00 X%f Y%f\n",	/* Move X, Y */
@@ -1767,6 +1770,20 @@ get_number(poly[string] h, string key, real def)
 	return def;
 }
 
+string[...]
+get_array(poly[string] h, string key, string[] def)
+{
+	if (hash_test(h, key)) {
+		try {
+			string[] v = h[key];
+			return v;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "array", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
 /*
  * Load a device configuration from the provided filename. Leave existing
  * values unchanged if the configuration doesn't provide a new value
@@ -1778,7 +1795,8 @@ load_device(string name)
 	poly[string] h = p;
 	try {
 		device.start = get_string(h, "start", device.start);
-		device.bounds = get_string(h, "bounds", device.bounds);
+		device.settings = get_string(h, "settings", device.settings);
+		device.setting_values = get_array(h, "setting-values", device.setting_values);
 		device.inch = get_string(h, "inch", device.inch);
 		device.mm = get_string(h, "mm", device.mm);
 		device.move = get_string(h, "move", device.move);
@@ -1794,15 +1812,15 @@ load_device(string name)
 
 /*
  * Emit all of the startup values. Those include the 'start' string, a
- * possible bounds value and then one of the inch or millimeters
+ * possible settings value and then one of the inch or millimeters
  * strings.
  */
 void
 gcode_start(file f)
 {
 	File::fprintf(f, "%s", device.start);
-	if (device.bounds != "")
-		File::fprintf(f, device.bounds, width, height);
+	if (device.settings != "")
+		File::fprintf(f, device.settings, device.setting_values...);
 	if (millimeters)
 		File::fprintf(f, "%s", device.mm);
 	else
@@ -2122,7 +2140,15 @@ ParseArgs::argdesc argd = {
 			.var = { .arg_string = &device_name },
 			.abbr = 'd',
 			.name = "device",
+			.expr_name = "device-file",
 			.desc = "Device config file"
+		},
+		{
+			.var = { .arg_string = &settings },
+			.abbr = 'S',
+			.name = "settings",
+			.expr_name = "value,...",
+			.desc = "Device-specific settings values"
 		},
 		{
 			.var = { .arg_string = &output_name },
@@ -2240,6 +2266,18 @@ main()
 
 	if (device_name != "")
 		load_device(device_name);
+
+	if (settings != "") {
+		string[] setting_values = String::parse_csv(settings);
+		if (dim(setting_values) > dim(device.setting_values)) {
+			File::fprintf(stderr, "--settings mismatch. Want no more than %d values got %d values",
+				dim(device.setting_values),
+				dim(setting_values));
+			ParseArgs::usage(stderr);
+		}
+		for (int i = 0; i < dim(setting_values); i++)
+			device.setting_values[i] = setting_values[i];
+	}
 
 	if (output_name == "-")
 		output = stdout;

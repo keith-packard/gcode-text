@@ -1557,6 +1557,16 @@ matrix_rotate (&matrix_t m, real a)
 		&m);
 }
 
+matrix_t
+matrix_sheer (&matrix_t m, real sx, real sy)
+{
+	return matrix_multiply(&(matrix_t) {
+			.xx = 1, .yx = sx,
+			.xy = sy, .yy = 1,
+			.x0 = 0, .y0 = 0 },
+		&m);
+}
+
 spoint_t
 matrix_point (&matrix_t m, spoint_t p)
 {
@@ -1602,7 +1612,11 @@ bool draw_rect = false;		/* --rect */
 bool inches = true;		/* --inches */
 bool millimeters = false;	/* --mm */
 string share_dir = "@SHARE_DIR@"; /* --config-dir */
+string settings = "";		/* --settings */
+bool version = false;		/* --version */
+bool oblique = false;		/* --oblique */
 
+string project_version = "@VERSION@";
 int user_argind;
 
 /*
@@ -1611,25 +1625,29 @@ int user_argind;
  */
 typedef struct {
 	string	start;		/* start string */
-	string	bounds;		/* bounds format, given width and height */
+	string	settings;	/* settings format, given settings_values */
+	string[]setting_values;	/* value for each setting */
 	string	inch;		/* set inch mode */
 	string	mm;		/* set mm mode */
 	string	move;		/* move format, given X and Y */
 	bool	speed;		/* whether draw is given speed */
 	bool	y_invert;	/* whether Y coordinates are inverted (+up) */
 	string	draw;		/* draw format, given X and Y (and maybe speed) */
+	string	curve;		/* curve format, given X1, Y1, X2, Y2, X3, Y3 (and maybe speed) */
 	string	stop;		/* stop string */
 } device_t;
 
 device_t	device = {
 	.start = "G90\nG17\n",		/* absolute mode, XY plane */
-	.bounds = "",
+	.settings = "",			/* Settings setting_values... */
+	.setting_values = (string[0]) {},/* No settings values by default */
 	.inch = "G20\n",		/* inches mode */
 	.mm = "G21\n",			/* mm mode */
 	.move = "G00 X%f Y%f\n",	/* Move X, Y */
-	.speed = true,			/* include speed in Draw */
+	.speed = true,			/* include speed in Draw & Spline */
 	.y_invert = true,		/* +up */
 	.draw = "G01 X%f Y%f F%f\n",	/* Draw X, Y, speed */
+	.curve = "",			/* Curve X1, Y1, X2, Y2, X3, Y3 */
 	.stop = "M30\n"			/* end program */
 };
 
@@ -1754,6 +1772,20 @@ get_number(poly[string] h, string key, real def)
 	return def;
 }
 
+string[...]
+get_array(poly[string] h, string key, string[] def)
+{
+	if (hash_test(h, key)) {
+		try {
+			string[] v = h[key];
+			return v;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "array", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
 /*
  * Load a device configuration from the provided filename. Leave existing
  * values unchanged if the configuration doesn't provide a new value
@@ -1765,11 +1797,13 @@ load_device(string name)
 	poly[string] h = p;
 	try {
 		device.start = get_string(h, "start", device.start);
-		device.bounds = get_string(h, "bounds", device.bounds);
+		device.settings = get_string(h, "settings", device.settings);
+		device.setting_values = get_array(h, "setting-values", device.setting_values);
 		device.inch = get_string(h, "inch", device.inch);
 		device.mm = get_string(h, "mm", device.mm);
 		device.move = get_string(h, "move", device.move);
 		device.draw = get_string(h, "draw", device.draw);
+		device.curve = get_string(h, "curve", device.curve);
 		device.speed = get_bool(h, "speed", device.speed);
 		device.y_invert = get_bool(h, "y-invert", device.y_invert);
 		device.stop = get_string(h, "stop", device.stop);
@@ -1781,15 +1815,15 @@ load_device(string name)
 
 /*
  * Emit all of the startup values. Those include the 'start' string, a
- * possible bounds value and then one of the inch or millimeters
+ * possible settings value and then one of the inch or millimeters
  * strings.
  */
 void
 gcode_start(file f)
 {
 	File::fprintf(f, "%s", device.start);
-	if (device.bounds != "")
-		File::fprintf(f, device.bounds, width, height);
+	if (device.settings != "")
+		File::fprintf(f, device.settings, device.setting_values...);
 	if (millimeters)
 		File::fprintf(f, "%s", device.mm);
 	else
@@ -1803,11 +1837,15 @@ gcode_stop(file f)
 	File::fprintf(f, "%s", device.stop);
 }
 
+real last_x, last_y;
+
 /* Format the move output */
 void
 gcode_move(file f, real x, real y)
 {
 	File::fprintf(f, device.move, x, y);
+	last_x = x;
+	last_y = y;
 }
 
 /* Format the draw output, including the speed (feed rate) if used */
@@ -1818,6 +1856,35 @@ gcode_draw(file f, real x, real y)
 		File::fprintf(f, device.draw, x, y, feed_rate);
 	else
 		File::fprintf(f, device.draw, x, y);
+	last_x = x;
+	last_y = y;
+}
+
+/* Draw a curve, potentially decomposing to lines */
+void
+gcode_curve(file f, real x1, real y1, real x2, real y2, real x3, real y3)
+{
+	void cdraw(real x, real y) {
+		gcode_draw(f, x, y);
+	}
+
+	if (device.curve != "") {
+		if (device.speed)
+			File::fprintf(f, device.curve, x1, y1, x2, y2, x3, y3, feed_rate);
+		else
+			File::fprintf(f, device.curve, x1, y1, x2, y2, x3, y3);
+	} else {
+		spline_t	spline = {
+			.a = spoint(last_x, last_y),
+			.b = spoint(x1, y1),
+			.c = spoint(x2, y2),
+			.d = spoint(x3, y3),
+		};
+		_spline_decompose(cdraw, &spline, tolerance**2);
+		cdraw(x3, y3);
+	}
+	last_x = x3;
+	last_y = y3;
 }
 
 /* Draw a rectangle by using a move and four draws */
@@ -1835,49 +1902,24 @@ gcode_rect(file f, rect_t r)
 void
 text_to_gcode(file f, matrix_t m, string s)
 {
-	real last_x = 0.0, last_y = 0.0;
-
 	void move(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
 		gcode_move(f, p.x, p.y);
-		last_x = x1;
-		last_y = y1;
 	}
 
 	void draw(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
 		gcode_draw(f, p.x, p.y);
-		last_x = x1;
-		last_y = y1;
 	}
 
-	void sdraw(real x, real y)
-	{
-		gcode_draw(f, x, y);
-	}
-
-	/*
-	 * decompose a spline into line segments of the desired
-	 * flatness and render a sequence of lines
-	 */
 	void curve(real x1, real y1, real x2, real y2, real x3, real y3)
 	{
-		spoint_t a = matrix_point(&m, spoint(last_x, last_y));
 		spoint_t b = matrix_point(&m, spoint(x1, y1));
 		spoint_t c = matrix_point(&m, spoint(x2, y2));
 		spoint_t d = matrix_point(&m, spoint(x3, y3));
-		spline_t	spline = {
-			.a = a,
-			.b = b,
-			.c = c,
-			.d = d,
-		};
-		_spline_decompose(sdraw, &spline, tolerance**2);
-		gcode_draw(f, d.x, d.y);
-		last_x = x3;
-		last_y = y3;
+		gcode_curve(f, b.x, b.y, c.x, c.y, d.x, d.y);
 	}
 
 	draw_calls_t gcode_calls = {
@@ -1993,6 +2035,8 @@ parse_template(string file_name)
  * on all four sides
  */
 
+real oblique_sheer = 0.1;
+
 void
 text_into_rect(file f, rect_t rect, string line)
 {
@@ -2010,6 +2054,8 @@ text_into_rect(file f, rect_t rect, string line)
 	text_metrics_t metrics = text_metrics(&font, line);
 	real text_width = metrics.right_side_bearing - metrics.left_side_bearing;
 	real text_height = metrics.ascent + metrics.descent;
+	if (oblique)
+		text_width += text_height * oblique_sheer;
 
 	real scale = 0.0;
 
@@ -2030,6 +2076,8 @@ text_into_rect(file f, rect_t rect, string line)
 	 */
 	matrix_t matrix = matrix_identity();
 	matrix = matrix_translate(&matrix, text_off_x + rect.top_left.x + border, text_off_y + rect.top_left.y + border);
+	if (oblique)
+		matrix = matrix_sheer(&matrix, -oblique_sheer, 0);
 	matrix = matrix_scale(&matrix, scale, scale);
 	if (device.y_invert)
 		matrix = matrix_scale(&matrix, 1, -1);
@@ -2044,6 +2092,12 @@ autoload ParseArgs;
 
 ParseArgs::argdesc argd = {
 	.args = {
+		{
+			.var = { .arg_flag = &version },
+			.abbr = 'V',
+			.name = "version",
+			.desc = "Print version and exit"
+		},
 		{
 			.var = { .arg_flag = &inches },
 			.abbr = 'i',
@@ -2064,6 +2118,13 @@ ParseArgs::argdesc argd = {
 			.name = "rect",
 			.expr_name = "rect",
 			.desc = "Draw bounding rectangles"
+		},
+		{
+			.var = { .arg_flag = &oblique },
+			.abbr = 'O',
+			.name = "oblique",
+			.expr_name = "oblique",
+			.desc = "Draw the glyphs using a sheer transform"
 		},
 		{
 			.var = { .arg_real = &tolerance },
@@ -2090,7 +2151,15 @@ ParseArgs::argdesc argd = {
 			.var = { .arg_string = &device_name },
 			.abbr = 'd',
 			.name = "device",
+			.expr_name = "device-file",
 			.desc = "Device config file"
+		},
+		{
+			.var = { .arg_string = &settings },
+			.abbr = 'S',
+			.name = "settings",
+			.expr_name = "value,...",
+			.desc = "Device-specific settings values"
 		},
 		{
 			.var = { .arg_string = &output_name },
@@ -2194,6 +2263,12 @@ main()
 {
 	rect_t[] template;
 	ParseArgs::parseargs(&argd, &argv);
+
+	if (version) {
+		printf("%s %s\n", argv[0], project_version);
+		exit(0);
+	}
+
 	if (is_uninit(&user_argind))
 		user_argind = dim(argv);
 	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
@@ -2202,6 +2277,18 @@ main()
 
 	if (device_name != "")
 		load_device(device_name);
+
+	if (settings != "") {
+		string[] setting_values = String::parse_csv(settings);
+		if (dim(setting_values) > dim(device.setting_values)) {
+			File::fprintf(stderr, "--settings mismatch. Want no more than %d values got %d values",
+				dim(device.setting_values),
+				dim(setting_values));
+			ParseArgs::usage(stderr);
+		}
+		for (int i = 0; i < dim(setting_values); i++)
+			device.setting_values[i] = setting_values[i];
+	}
 
 	if (output_name == "-")
 		output = stdout;

@@ -16,24 +16,29 @@ the Free Software Foundation, either version 2 of the License, or
 ## Usage
 
 	gcode-text: usage: gcode-text <options> [--] file ...
-	    -i,--inch                  Use inch units
-	    -m,--mm                    Use millimeter units
-	    -r,--rect                  Draw bounding rectangles
-	    -f,--flatness <flatness>   Spline decomposition tolerance
-	    -s,--speed <speed>         Feed rate
-	    -t,--template <template>   Template file name
-	    -o,--output <output>       Output file name
-	    -b,--border <border>       Border width
-	    -x,--start-x <start-x>     Starting X for boxes
-	    -y,--start-y <start-y>     Starting Y for boxes
-	    -w,--width <width>         Box width
-	    -h,--height <height>       Box height
-	    -X,--delta-x <delta-x>     X offset between boxes
-	    -Y,--delta-y <delta-y>     Y offset between boxes
-	    -c,--columns <columns>     Number of columns of boxes
-	    -v,--value <value>         Initial text numeric value
-	    -n,--number <number>       Number of numeric values
-	    -T,--text <string>         Text string
+	    -V,--version		Print version and exit
+	    -i,--inch			Use inch units
+	    -m,--mm			Use millimeter units
+	    -r,--rect			Draw bounding rectangles
+	    -O,--oblique		Draw the glyphs using a sheer transform
+	    -f,--flatness <flatness>	Spline decomposition tolerance
+	    -s,--speed <speed>		Feed rate
+	    -t,--template <template>	Template file name
+	    -d,--device <device-file>   Device config file
+	    -S,--settings <value,...>   Device-specific settings values
+	    -o,--output <output>	Output file name
+	    -b,--border <border>	Border width
+	    -x,--start-x <start-x>	Starting X for boxes
+	    -y,--start-y <start-y>	Starting Y for boxes
+	    -w,--width <width>		Box width
+	    -h,--height <height>	Box height
+	    -X,--delta-x <delta-x>	X offset between boxes
+	    -Y,--delta-y <delta-y>	Y offset between boxes
+	    -c,--columns <columns>	Number of columns of boxes
+	    -v,--value <value>		Initial text numeric value
+	    -n,--number <number>	Number of numeric values
+	    -T,--text <string>		Text string
+	    -C,--config-dir <dir>	Directory containing device configuration files
 
 ## Examples
 
@@ -53,7 +58,12 @@ border of 0.01" around the text:
 
 Draw the sample below
 
-	$ gcode-text -o sample.gcode -T "Gcode-text" -x 0 -y 0 -w 8 -h 1 -r
+	$ gcode-text -o gcode-text.gcode -T "Gcode-text" -x 0 -y 0 -w 8 -h 1 -r
 
-![sample gcode output](https://github.com/keith-packard/gcode-text/blob/main/gcode-text.png?raw)
+![sample gcode output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.png)
  
+Draw the SVG sample below
+
+	$ gcode-text -o gcode-text.svg -d svg.json -T "Gcode-text (SVG)" -x 0 -y 0 -w 640 -h 100 -b 10 -S "640,100,5"
+
+![sample svg output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.svg)

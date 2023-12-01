@@ -1633,6 +1633,7 @@ typedef struct {
 	bool	speed;		/* whether draw is given speed */
 	bool	y_invert;	/* whether Y coordinates are inverted (+up) */
 	string	draw;		/* draw format, given X and Y (and maybe speed) */
+	string	curve;		/* curve format, given X1, Y1, X2, Y2, X3, Y3 (and maybe speed) */
 	string	stop;		/* stop string */
 } device_t;
 
@@ -1643,9 +1644,10 @@ device_t	device = {
 	.inch = "G20\n",		/* inches mode */
 	.mm = "G21\n",			/* mm mode */
 	.move = "G00 X%f Y%f\n",	/* Move X, Y */
-	.speed = true,			/* include speed in Draw */
+	.speed = true,			/* include speed in Draw & Spline */
 	.y_invert = true,		/* +up */
 	.draw = "G01 X%f Y%f F%f\n",	/* Draw X, Y, speed */
+	.curve = "",			/* Curve X1, Y1, X2, Y2, X3, Y3 */
 	.stop = "M30\n"			/* end program */
 };
 
@@ -1801,6 +1803,7 @@ load_device(string name)
 		device.mm = get_string(h, "mm", device.mm);
 		device.move = get_string(h, "move", device.move);
 		device.draw = get_string(h, "draw", device.draw);
+		device.curve = get_string(h, "curve", device.curve);
 		device.speed = get_bool(h, "speed", device.speed);
 		device.y_invert = get_bool(h, "y-invert", device.y_invert);
 		device.stop = get_string(h, "stop", device.stop);
@@ -1834,11 +1837,15 @@ gcode_stop(file f)
 	File::fprintf(f, "%s", device.stop);
 }
 
+real last_x, last_y;
+
 /* Format the move output */
 void
 gcode_move(file f, real x, real y)
 {
 	File::fprintf(f, device.move, x, y);
+	last_x = x;
+	last_y = y;
 }
 
 /* Format the draw output, including the speed (feed rate) if used */
@@ -1849,6 +1856,35 @@ gcode_draw(file f, real x, real y)
 		File::fprintf(f, device.draw, x, y, feed_rate);
 	else
 		File::fprintf(f, device.draw, x, y);
+	last_x = x;
+	last_y = y;
+}
+
+/* Draw a curve, potentially decomposing to lines */
+void
+gcode_curve(file f, real x1, real y1, real x2, real y2, real x3, real y3)
+{
+	void cdraw(real x, real y) {
+		gcode_draw(f, x, y);
+	}
+
+	if (device.curve != "") {
+		if (device.speed)
+			File::fprintf(f, device.curve, x1, y1, x2, y2, x3, y3, feed_rate);
+		else
+			File::fprintf(f, device.curve, x1, y1, x2, y2, x3, y3);
+	} else {
+		spline_t	spline = {
+			.a = spoint(last_x, last_y),
+			.b = spoint(x1, y1),
+			.c = spoint(x2, y2),
+			.d = spoint(x3, y3),
+		};
+		_spline_decompose(cdraw, &spline, tolerance**2);
+		cdraw(x3, y3);
+	}
+	last_x = x3;
+	last_y = y3;
 }
 
 /* Draw a rectangle by using a move and four draws */
@@ -1866,49 +1902,24 @@ gcode_rect(file f, rect_t r)
 void
 text_to_gcode(file f, matrix_t m, string s)
 {
-	real last_x = 0.0, last_y = 0.0;
-
 	void move(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
 		gcode_move(f, p.x, p.y);
-		last_x = x1;
-		last_y = y1;
 	}
 
 	void draw(real x1, real y1)
 	{
 		spoint_t p = matrix_point(&m, spoint(x1, y1));
 		gcode_draw(f, p.x, p.y);
-		last_x = x1;
-		last_y = y1;
 	}
 
-	void sdraw(real x, real y)
-	{
-		gcode_draw(f, x, y);
-	}
-
-	/*
-	 * decompose a spline into line segments of the desired
-	 * flatness and render a sequence of lines
-	 */
 	void curve(real x1, real y1, real x2, real y2, real x3, real y3)
 	{
-		spoint_t a = matrix_point(&m, spoint(last_x, last_y));
 		spoint_t b = matrix_point(&m, spoint(x1, y1));
 		spoint_t c = matrix_point(&m, spoint(x2, y2));
 		spoint_t d = matrix_point(&m, spoint(x3, y3));
-		spline_t	spline = {
-			.a = a,
-			.b = b,
-			.c = c,
-			.d = d,
-		};
-		_spline_decompose(sdraw, &spline, tolerance**2);
-		gcode_draw(f, d.x, d.y);
-		last_x = x3;
-		last_y = y3;
+		gcode_curve(f, b.x, b.y, c.x, c.y, d.x, d.y);
 	}
 
 	draw_calls_t gcode_calls = {

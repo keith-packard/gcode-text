@@ -1,3 +1,11 @@
+gcode-text (0.4-1) unstable; urgency=medium
+
+  * Add spline output support
+  * Add "settings" to device configurations
+  * Add --version and --oblique options
+
+ -- Keith Packard <keithp@keithp.com>  Fri, 01 Dec 2023 13:36:47 -0800
+
 gcode-text (0.3-1) unstable; urgency=medium
 
   * Add SVG output support

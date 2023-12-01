@@ -20,22 +20,66 @@
 const int UCS_PAGE_SHIFT = 7;
 const int UCS_PER_PAGE =   (1 << UCS_PAGE_SHIFT);
 
+/* encodes a specific Unicode page */
 typedef struct {
 	int			page;
 	int[UCS_PER_PAGE]	offsets;
 } charmap_t;
 
 typedef struct {
-	string		name;
-	string		style;
-	charmap_t[] 	charmap;
-	int[]		outlines;
-	int		ascender;
-	int		descender;
-	int		height;
+	string		name;		/* font name */
+	string		style;		/* font style */
+	charmap_t[] 	charmap;	/* array of unicode page maps */
+	int[]		outlines;	/* glyphs, including metrics and snap values */
+	int		space;		/* white space between glyphs */
+	int		ascent;		/* overall font ascent value */
+	int		descent;	/* overall font descent value */
+	int		height;		/* font line height, including leading */
 
-	int		cur_page;
+	int		cur_page;	/* cache for current unicode page */
 } font_t;
+
+/*
+ * Each glyph contains metrics, a list of snap coordinates and then a list of
+ * drawing commands.
+ *
+ * The metrics contain four values:
+ *
+ *  0. left_side_bearing    distance from left edge of cell to left edge of glyph (+ left)
+ *  1. right_side_bearing   distance from left edge of cell to right edge of glyph (+ left)
+ *  2. ascent               distance from baseline to top of ink (+ up)
+ *  3. descent              distance from baseline to bottom of ink (+ down)
+ *
+ * Yes, the ascent value has an unexpected sign, but that's how fonts
+ * work elsewhere.
+ *
+ * The snap coordinates are in two lists, snap_x and snap_y. The
+ * lengths of each list occurs first, then the two arrays
+ *
+ *  4. snap_n_x             number of X snap coordinates
+ *  5. snap_n_y             number of Y snap coordinates
+ *  6. snap_x               array of snap_n_x coordinates
+ *  6 + snap_n_x. snap_y    array of snap_n_y coordinates
+ *
+ * The snap values aren't used in this particular implementation;
+ * they're useful when rasterizing the glyphs to a pixel grid; each
+ * snap coordinate should be moved to the nearest pixel value and values
+ * between the snap coordinates should be interpolated to fit.
+ *
+ * After the snap lists, there's a list of drawing operations ending with
+ * 'e':
+ *
+ *  'm': move (x, y)
+ *  'l': draw a line (x,y)
+ *  'c': draw a cubic spline (x1, y1, x2, y2, x3, y3)
+ *  '2': draw a quadratic spline (x1, y1, x2, y2)
+ *  'e': end of glyph
+ *
+ * The 'l', 'c' and '2' commands use the current position as an
+ * implicit additional coordinate.
+ *
+ * These glyphs are drawn in a 64x64 grid
+ */
 
 const int[] outlines = {
 /* 0x0 '\0'  offset 0 */
@@ -1068,33 +1112,42 @@ const charmap_t[] charmap = {
     },
 };
 
-/*
- * Fonts
- */
-
-int ucs_page (int ucs4)
-{
-	return ucs4 >> UCS_PAGE_SHIFT;
-}
-
-int ucs_char_in_page (int ucs4)
-{
-	return ucs4 & (UCS_PER_PAGE - 1);
-}
-
 font_t font = {
 	.name		= "Default",
 	.style		= "Roman",
 	.charmap	= charmap,
 	.outlines	= outlines,
-	.cur_page	= -1,
+	.space		= 12,
+	.ascent		= 50,
+	.descent	= 14,
+	.height		= 72,
+
+	.cur_page	= 0,
 };
 
+/* Extract the unicode page number from a ucs4 value */
+int ucs_page (int ucs4)
+{
+	return ucs4 >> UCS_PAGE_SHIFT;
+}
+
+/* Extract the ucs4 index within a page */
+int ucs_char_in_page (int ucs4)
+{
+	return ucs4 & (UCS_PER_PAGE - 1);
+}
+
+/*
+ * Find the page mapping within the font for the
+ * specified page. If none is found, use page 0
+ * and return false so that glyph_offset returns
+ * the default glyph (0).
+ */
 bool find_ucs4_page(*font_t font, int page)
 {
 	int i;
 
-	if (font->cur_page == page)
+	if (font->charmap[font->cur_page].page == page)
 		return true;
 
 	for (i = 0; i < dim(font->charmap); i++)
@@ -1104,10 +1157,14 @@ bool find_ucs4_page(*font_t font, int page)
 			return true;
 		}
 
-	font->cur_page = -1;
+	font->cur_page = 0;
 	return false;
 }
 
+/*
+ * Map a UCS4 value to the index of the start of the glyph within the
+ * glyph array
+ */
 int glyph_offset (*font_t font, int ucs4)
 {
 	int		idx = ucs_char_in_page(ucs4);
@@ -1119,6 +1176,7 @@ int glyph_offset (*font_t font, int ucs4)
 }
 
 
+/* Helper functions to extract data from the glyph array */
 int glyph_left(*font_t font, int offset) = font->outlines[offset + 0];
 int glyph_right(*font_t font, int offset) = font->outlines[offset + 1];
 int glyph_ascent(*font_t font, int offset) = font->outlines[offset + 2];
@@ -1131,43 +1189,25 @@ int glyph_draw(*font_t font, int offset) {
 	return offset + 6 + glyph_n_snap_x(font, offset) + glyph_n_snap_y(font, offset);
 }
 
-const real glyph_margin = 12;
-const real pen_size = 4;
-const real font_ascent = 48;
-const real font_descent = 16;
+/*
+ * Our glyphs don't have a separate width value, instead the
+ * width is "always" the right_side_bearing plus a fixed padding
+ * value (font->space)
+ */
+real glyph_width(*font_t font, int offset) = glyph_right(font, offset) + font->space;
 
-real glyph_width(*font_t font, int offset) = glyph_right(font, offset) + glyph_margin;
-
-void
-path_move(real x, real y)
-{
-	printf("move (%f, %f)\n", x, y);
-}
-
-void
-path_draw(real x, real y)
-{
-	printf("draw (%f, %f)\n", x, y);
-}
-
-void
-path_curve(real x1, real y1, real x2, real y2, real x3, y3)
-{
-	printf("curve (%f, %f), (%f, %f), (%f, %f)\n", x1, y1, x2, y2, x3, y3);
-}
-
+/*
+ * Draw callbacks provided to the glyph drawing function
+ */
 typedef struct {
 	void(real x, real y) move;
 	void(real x, real y) draw;
 	void(real x1, real y1, real x2, real y2, real x3, real y3) curve;
 } draw_calls_t;
 
-draw_calls_t debug_calls = {
-	.move = path_move,
-	.draw = path_draw,
-	.curve = path_curve,
-};
-
+/*
+ * Draw a single glyph using the provide callbacks.
+ */
 real
 glyph_path(*font_t font, int ucs4, *draw_calls_t calls)
 {
@@ -1178,36 +1218,39 @@ glyph_path(*font_t font, int ucs4, *draw_calls_t calls)
 
 	x1 = y1 = 0;
 
+	int value() { return font->outlines[offset++]; }
+
 	for (;;) {
-		op = font->outlines[offset++];
+		op = value();
 
 		switch (op) {
 		case 'm':
-			x1 = font->outlines[offset++];
-			y1 = font->outlines[offset++];
+			x1 = value();
+			y1 = value();
 			calls->move (x1, y1);
 			continue;
 		case 'l':
-			x1 = font->outlines[offset++];
-			y1 = font->outlines[offset++];
+			x1 = value();
+			y1 = value();
 			calls->draw (x1, y1);
 			continue;
 		case 'c':
-			x3 = font->outlines[offset++];
-			y3 = font->outlines[offset++];
-			x2 = font->outlines[offset++];
-			y2 = font->outlines[offset++];
-			x1 = font->outlines[offset++];
-			y1 = font->outlines[offset++];
+			x3 = value();
+			y3 = value();
+			x2 = value();
+			y2 = value();
+			x1 = value();
+			y1 = value();
 			calls->curve (x3, y3, x2, y2, x1, y1);
 			continue;
 		case '2':
-			_x1 = font->outlines[offset++];
-			_y1 = font->outlines[offset++];
+			/* Compute the equivalent cubic spline */
+			_x1 = value();
+			_y1 = value();
 			x3 = x1 + 2 * (_x1 - x1) / 3;
 			y3 = y1 + 2 * (_y1 - y1) / 3;
-			x1 = font->outlines[offset++];
-			y1 = font->outlines[offset++];
+			x1 = value();
+			y1 = value();
 			x2 = x1 + 2 * (_x1 - x1) / 3;
 			y2 = y1 + 2 * (_y1 - y1) / 3;
 			calls->curve (x3, y3, x2, y2, x1, y1);
@@ -1222,6 +1265,11 @@ glyph_path(*font_t font, int ucs4, *draw_calls_t calls)
 	}
 	return glyph_width(font, glyph_start);
 }
+
+/*
+ * Draw a sequence of glyphs using the provided callbacks,
+ * stepping by the width of each glyph
+ */
 
 real
 text_path(*font_t font, string s, *draw_calls_t calls)
@@ -1256,6 +1304,10 @@ text_path(*font_t font, string s, *draw_calls_t calls)
 	return ret;
 }
 
+/*
+ * Text metrics information, used to measure
+ * the bounds of a set of glyphs
+ */
 typedef struct {
 	real    left_side_bearing;
 	real    right_side_bearing;
@@ -1266,6 +1318,7 @@ typedef struct {
 	real    font_descent;
 } text_metrics_t;
 
+/* Compute the metrics of a single glyph */
 text_metrics_t
 glyph_metrics(*font_t font, int ucs4)
 {
@@ -1277,11 +1330,12 @@ glyph_metrics(*font_t font, int ucs4)
 		.ascent = glyph_ascent(font, glyph_start),
 		.descent = glyph_descent(font, glyph_start),
 		.width = glyph_width(font, glyph_start),
-		.font_ascent = font_ascent,
-		.font_descent = font_descent,
+		.font_ascent = font->ascent,
+		.font_descent = font->descent,
 	};
 }
 
+/* Compute the metrics of a list of glyphs */
 text_metrics_t
 text_metrics(*font_t font, string s)
 {
@@ -1327,6 +1381,7 @@ rect_is_empty(*rect_t r)
 	return r->top_left.x >= r->bottom_right.x || r->top_left.y >= r->bottom_right.y;
 }
 
+/* Interpolate splines to lines until we hit the desired flatness */
 void
 _lerp_half (*spoint_t a, *spoint_t b, *spoint_t result)
 {
@@ -1441,6 +1496,8 @@ _spline_decompose (void(real x, real y) draw,
     }
 }
 
+/* Various matrix operations to support affine transformations */
+
 typedef struct {
 	real	xx, yx;
 	real	xy, yy;
@@ -1527,41 +1584,61 @@ spoint (real x, real y)
 	};
 }
 
-real feed_rate = 100;
-real tolerance = 0.001;
-real border = .1;
-string output_name = "-";
-int user_argind;
-string template_name = "";
-string device_name = "";
-real start_x = 0, start_y = 0, delta_x = 4, delta_y = 1, width = 4, height = 1, columns = 1;
-real start_value, number;
-string text_value;
-bool draw_rect = false;
-bool inches = true;
-bool millimeters = false;
-string share_dir = "@SHARE_DIR@";
+/* Values provided on the command line */
 
+real feed_rate = 100;		/* --speed */
+real tolerance = 0.001;		/* --flatness */
+real border = .1;		/* --border */
+string output_name = "-";	/* --output */
+string template_name = "";	/* --template */
+string device_name = "";	/* --device */
+real start_x = 0, start_y = 0;	/* --start-x, --start-y */
+real delta_x = 4, delta_y = 1;	/* --delta-x, --delta-y */
+real width = 4, height = 1;	/* --width, --height */
+real columns = 1;		/* --columns */
+real start_value, number;	/* --value, --number */
+string text_value;		/* --text */
+bool draw_rect = false;		/* --rect */
+bool inches = true;		/* --inches */
+bool millimeters = false;	/* --mm */
+string share_dir = "@SHARE_DIR@"; /* --config-dir */
+
+int user_argind;
+
+/*
+ * Device configuration structure. This contains all of the data
+ * necessary to generate output for the target device
+ */
 typedef struct {
-	string	start;
-	string	inch;
-	string	mm;
-	string	move;
-	string	draw;
-	string	stop;
+	string	start;		/* start string */
+	string	bounds;		/* bounds format, given width and height */
+	string	inch;		/* set inch mode */
+	string	mm;		/* set mm mode */
+	string	move;		/* move format, given X and Y */
+	bool	speed;		/* whether draw is given speed */
+	bool	y_invert;	/* whether Y coordinates are inverted (+up) */
+	string	draw;		/* draw format, given X and Y (and maybe speed) */
+	string	stop;		/* stop string */
 } device_t;
 
 device_t	device = {
-	.start = "G90\nG17\n",
-	.inch = "G20\n",
-	.mm = "G21\n",
-	.move = "G00 X%f Y%f\n",
-	.draw = "G01 X%f Y%f F%f\n",
-	.stop = "M30\n"
+	.start = "G90\nG17\n",		/* absolute mode, XY plane */
+	.bounds = "",
+	.inch = "G20\n",		/* inches mode */
+	.mm = "G21\n",			/* mm mode */
+	.move = "G00 X%f Y%f\n",	/* Move X, Y */
+	.speed = true,			/* include speed in Draw */
+	.y_invert = true,		/* +up */
+	.draw = "G01 X%f Y%f F%f\n",	/* Draw X, Y, speed */
+	.stop = "M30\n"			/* end program */
 };
 
 autoload JSON;
 
+/*
+ * Open a device configuration file. Try the given path first,
+ * and if that fails, look in the device configuration directory
+ */
 file
 device_open(string name)
 {
@@ -1574,6 +1651,7 @@ device_open(string name)
 	return f;
 }
 
+/* Read an entire file into a single string */
 string
 whole_file(string file_name)
 {
@@ -1587,74 +1665,162 @@ whole_file(string file_name)
 	return ret;
 }
 
-exception invalid_device(string name);
+/*
+ * Extract data from a json value of specific type. Raise an error on
+ * a type mismatch so that we can provide a more helpful message to
+ * the user
+ */
 
+exception invalid_device(string name, string expected, string got, poly value);
+
+/* Convert an internal type to the equivalent JSON type name */
 string
-get_value(poly[string] h, string key, string def)
+json_typeof(poly value)
 {
-	if (hash_test(h, key))
-		return h[key];
+	switch (value) {
+	case true:
+	case "true":
+		return "true";
+	case false:
+	case "false":
+		return "false";
+	case <>:
+	case "null":
+		return "null";
+	default:
+		break;
+	}
+	if (is_string(value))
+		return "string";
+	if (is_number(value))
+		return "number";
+	if (is_hash(value))
+		return "object";
+	if (is_array(value))
+		return "array";
+	return "unknown";
+}
+
+/* Extract a string value */
+string
+get_string(poly[string] h, string key, string def)
+{
+	if (hash_test(h, key)) {
+		try {
+			string s = h[key];
+			return s;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "string", json_typeof(value), value);
+		}
+	}
 	return def;
 }
 
+/*
+ * Extract a boolean value. Allow booleans to be encoded as strings
+ * for compatibility with pre-2.94 nickle
+ */
+bool
+get_bool(poly[string] h, string key, bool def)
+{
+	if (hash_test(h, key)) {
+		poly value = h[key];
+		switch (value) {
+		case true:
+		case "true":
+			return true;
+		case false:
+		case "false":
+			return false;
+		default:
+			raise invalid_device(key, "bool", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
+/* Extract a numeric value, either int or real */
+real
+get_number(poly[string] h, string key, real def)
+{
+	if (hash_test(h, key)) {
+		try {
+			real v = h[key];
+			return v;
+		} catch invalid_argument(string message, int id, poly value) {
+			raise invalid_device(key, "number", json_typeof(value), value);
+		}
+	}
+	return def;
+}
+
+/*
+ * Load a device configuration from the provided filename. Leave existing
+ * values unchanged if the configuration doesn't provide a new value
+ */
 void
 load_device(string name)
 {
 	poly p = JSON::from_json(whole_file(name));
 	poly[string] h = p;
-	device.start = get_value(h, "start", device.start);
-	device.inch = get_value(h, "inch", device.inch);
-	device.mm = get_value(h, "mm", device.mm);
-	device.move = get_value(h, "move", device.move);
-	device.draw = get_value(h, "draw", device.draw);
-	device.stop = get_value(h, "stop", device.stop);
+	try {
+		device.start = get_string(h, "start", device.start);
+		device.bounds = get_string(h, "bounds", device.bounds);
+		device.inch = get_string(h, "inch", device.inch);
+		device.mm = get_string(h, "mm", device.mm);
+		device.move = get_string(h, "move", device.move);
+		device.draw = get_string(h, "draw", device.draw);
+		device.speed = get_bool(h, "speed", device.speed);
+		device.y_invert = get_bool(h, "y-invert", device.y_invert);
+		device.stop = get_string(h, "stop", device.stop);
+	} catch invalid_device(string key, string expected, string got, poly value) {
+		File::fprintf(stderr, "%s: invalid value for \"%s\". Expected %s. Got %s (%v).\n", name, key, expected, got, value);
+		exit(1);
+	}
 }
 
+/*
+ * Emit all of the startup values. Those include the 'start' string, a
+ * possible bounds value and then one of the inch or millimeters
+ * strings.
+ */
 void
 gcode_start(file f)
 {
 	File::fprintf(f, "%s", device.start);
+	if (device.bounds != "")
+		File::fprintf(f, device.bounds, width, height);
 	if (millimeters)
 		File::fprintf(f, "%s", device.mm);
 	else
 		File::fprintf(f, "%s", device.inch);
 }
 
+/* Emit the stop string */
 void
 gcode_stop(file f)
 {
 	File::fprintf(f, "%s", device.stop);
 }
 
+/* Format the move output */
 void
 gcode_move(file f, real x, real y)
 {
 	File::fprintf(f, device.move, x, y);
 }
 
-int
-count_percent(string x)
-{
-	int n = 0;
-	int l = String::length(x);
-	for (int i = 0; i < l; i++)
-		if (x[i] == '%') {
-			i++;
-			if (i == l || x[i] != '%')
-				n++;
-		}
-	return n;
-}
-
+/* Format the draw output, including the speed (feed rate) if used */
 void
 gcode_draw(file f, real x, real y)
 {
-	if (count_percent(device.draw) == 2)
-		File::fprintf(f, device.draw, x, y);
-	else
+	if (device.speed)
 		File::fprintf(f, device.draw, x, y, feed_rate);
+	else
+		File::fprintf(f, device.draw, x, y);
 }
 
+/* Draw a rectangle by using a move and four draws */
 void
 gcode_rect(file f, rect_t r)
 {
@@ -1665,12 +1831,11 @@ gcode_rect(file f, rect_t r)
 	gcode_draw(f, r.top_left.x, r.top_left.y);
 }
 
+/* Render a text string scaled to the provided matrix */
 void
 text_to_gcode(file f, matrix_t m, string s)
 {
 	real last_x = 0.0, last_y = 0.0;
-
-	m = matrix_scale(&m, 1, -1);
 
 	void move(real x1, real y1)
 	{
@@ -1693,6 +1858,10 @@ text_to_gcode(file f, matrix_t m, string s)
 		gcode_draw(f, x, y);
 	}
 
+	/*
+	 * decompose a spline into line segments of the desired
+	 * flatness and render a sequence of lines
+	 */
 	void curve(real x1, real y1, real x2, real y2, real x3, real y3)
 	{
 		spoint_t a = matrix_point(&m, spoint(last_x, last_y));
@@ -1721,6 +1890,11 @@ text_to_gcode(file f, matrix_t m, string s)
 
 }
 
+/*
+ * Support a gcode template file to describe where strings
+ * should be placed
+ */
+
 typedef struct {
 	int	letter;
 	real	value;
@@ -1742,6 +1916,10 @@ read_token(file f)
 	};
 }
 
+/*
+ * Parse a gcode file, computing the bounding box
+ * for each polygon in the file
+ */
 rect_t[...]
 parse_template(string file_name)
 {
@@ -1809,18 +1987,31 @@ parse_template(string file_name)
 	return ret;
 }
 
+/*
+ * Render the provided string into the specified rectangle
+ * by scaling the text to fit subtracting off the 'border'
+ * on all four sides
+ */
+
 void
 text_into_rect(file f, rect_t rect, string line)
 {
 	if (draw_rect)
 		gcode_rect(f, rect);
-	text_metrics_t metrics = text_metrics(&font, line);
+
+	/* Compute the size of the target rectangle, subtracting the border. */
 	real rect_width = rect.bottom_right.x - rect.top_left.x - border * 2;
 	real rect_height = rect.bottom_right.y - rect.top_left.y - border * 2;
+
+	/*
+	 * Compute the size of the text. Use the ink metrics for height
+	 * so that the text ends up looking centered
+	 */
+	text_metrics_t metrics = text_metrics(&font, line);
 	real text_width = metrics.right_side_bearing - metrics.left_side_bearing;
 	real text_height = metrics.ascent + metrics.descent;
+
 	real scale = 0.0;
-	matrix_t matrix = matrix_identity();
 
 	/* Check aspect ratios to pick which to use for scale */
 	if (text_width / text_height > rect_width / rect_height) {
@@ -1829,12 +2020,23 @@ text_into_rect(file f, rect_t rect, string line)
 		scale = rect_height / text_height;
 	}
 
-	text_width = text_width * scale;
-	text_height = text_height * scale;
-	real text_off_x = (rect_width - text_width) / 2;
-	real text_off_y = (rect_height - text_height) / 2;
+	/* Center the scaled text in the rectangle */
+	real text_off_x = (rect_width - text_width * scale) / 2;
+	real text_off_y = (rect_height - text_height * scale) / 2;
+
+	/*
+	 * Compute a transformation matrix to scale, translate and
+	 * possibly mirror the text
+	 */
+	matrix_t matrix = matrix_identity();
 	matrix = matrix_translate(&matrix, text_off_x + rect.top_left.x + border, text_off_y + rect.top_left.y + border);
 	matrix = matrix_scale(&matrix, scale, scale);
+	if (device.y_invert)
+		matrix = matrix_scale(&matrix, 1, -1);
+	else
+		matrix = matrix_translate(&matrix, 0, metrics.ascent);
+
+	/* Render the text */
 	text_to_gcode(f, matrix, line);
 }
 
@@ -2006,8 +2208,6 @@ main()
 	else
 		output = File::open(output_name, "w");
 
-	gcode_start(output);
-
 	file my_open(string name) {
 		if (name == "-")
 			return stdin;
@@ -2022,53 +2222,74 @@ main()
 	if (template_name != "")
 		template = parse_template(template_name);
 
-	string
-	next_line()
+	/* Return the next line of text */
+	string next_line()
 	{
-		static file f;
-		static bool is_open = false;
 		if (!is_uninit(&start_value)) {
+			/* using sequential numeric values */
 			if (is_uninit(&number)) {
+				/*
+				 * If no template provided, stop after
+				 * one, otherwise fill all of the
+				 * template boxes
+				 */
 				if (template_name == "")
-					if (is_open)
-						raise done();
-			} else {
-				if (number == 0)
-					raise done();
-				number--;
+					number = 1;
+				else
+					number = -1;
 			}
-			return sprintf("%f", start_value++);
-		} else if (!is_uninit(&text_value)) {
-			if (is_open)
+			if (number == 0)
 				raise done();
-			is_open = true;
-			return text_value;
+			number--;
+			return sprintf("%f", start_value++);
 		} else {
 			static int i = 0;
+			static file f;
+			static bool is_open = false;
+
 			if (is_open && File::end(f)) {
 				my_close(f);
 				is_open = false;
 			}
 			if (!is_open) {
-				if (i >= dim(argv))
-					raise done();
-				f = my_open(argv[i]);
-				i++;
+				if (!is_uninit(&text_value)) {
+					/*
+					 * Start with any string provided on the command line
+					 * This can contain newlines, so just read it as if it
+					 * were a file
+					 */
+					f = File::string_read(text_value);
+					make_uninit(&text_value);
+				} else {
+					if (i >= dim(argv))
+						raise done();
+					f = my_open(argv[i]);
+					i++;
+				}
 				is_open = true;
 			}
+			/* Delete any trailing newline */
 			return String::chump(File::fgets(f));
 		}
 	}
 
+	/* Return the next box to paint text into */
 	rect_t
 	next_rect()
 	{
 		if (template_name != "") {
+			/* Use a template, return the next box */
 			static int t = 0;
 			if (t == dim(template))
 				raise done();
 			return template[t++];
 		} else {
+			/*
+			 * Use the provided parameters to define a
+			 * grid of boxes each width/height, starting
+			 * at start-x/start-y and offset by
+			 * delta-x/delta-y
+			*/
 			static int c = 0;
 			static real current_x;
 			static real current_y;
@@ -2092,6 +2313,8 @@ main()
 			};
 		}
 	}
+
+	gcode_start(output);
 
 	try {
 		for (;;) {

@@ -1,0 +1,12 @@
+{
+    "start" : "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<svg version=\"1.1\"\n",
+    "bounds" : "  width=\"%f\" height=\"%f\">\n",
+    "inch" : "<path fill=\"none\" stroke=\"black\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"",
+    "mm" : "<path fill=\"none\" stroke=\"black\" stroke-width=\"10\" stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"",
+    "move" : "M %f %f\n",
+    "draw" : "L %f %f\n",
+    "speed" : "false",
+    "y-invert" : "false",
+    "stop" : "\"/>\n</svg>"
+}
+

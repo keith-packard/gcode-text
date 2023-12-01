@@ -1557,6 +1557,16 @@ matrix_rotate (&matrix_t m, real a)
 		&m);
 }
 
+matrix_t
+matrix_sheer (&matrix_t m, real sx, real sy)
+{
+	return matrix_multiply(&(matrix_t) {
+			.xx = 1, .yx = sx,
+			.xy = sy, .yy = 1,
+			.x0 = 0, .y0 = 0 },
+		&m);
+}
+
 spoint_t
 matrix_point (&matrix_t m, spoint_t p)
 {
@@ -1602,7 +1612,10 @@ bool draw_rect = false;		/* --rect */
 bool inches = true;		/* --inches */
 bool millimeters = false;	/* --mm */
 string share_dir = "@SHARE_DIR@"; /* --config-dir */
+bool version = false;		/* --version */
+bool oblique = false;		/* --oblique */
 
+string project_version = "@VERSION@";
 int user_argind;
 
 /*
@@ -1993,6 +2006,8 @@ parse_template(string file_name)
  * on all four sides
  */
 
+real oblique_sheer = 0.1;
+
 void
 text_into_rect(file f, rect_t rect, string line)
 {
@@ -2010,6 +2025,8 @@ text_into_rect(file f, rect_t rect, string line)
 	text_metrics_t metrics = text_metrics(&font, line);
 	real text_width = metrics.right_side_bearing - metrics.left_side_bearing;
 	real text_height = metrics.ascent + metrics.descent;
+	if (oblique)
+		text_width += text_height * oblique_sheer;
 
 	real scale = 0.0;
 
@@ -2030,6 +2047,8 @@ text_into_rect(file f, rect_t rect, string line)
 	 */
 	matrix_t matrix = matrix_identity();
 	matrix = matrix_translate(&matrix, text_off_x + rect.top_left.x + border, text_off_y + rect.top_left.y + border);
+	if (oblique)
+		matrix = matrix_sheer(&matrix, -oblique_sheer, 0);
 	matrix = matrix_scale(&matrix, scale, scale);
 	if (device.y_invert)
 		matrix = matrix_scale(&matrix, 1, -1);
@@ -2044,6 +2063,12 @@ autoload ParseArgs;
 
 ParseArgs::argdesc argd = {
 	.args = {
+		{
+			.var = { .arg_flag = &version },
+			.abbr = 'V',
+			.name = "version",
+			.desc = "Print version and exit"
+		},
 		{
 			.var = { .arg_flag = &inches },
 			.abbr = 'i',
@@ -2064,6 +2089,13 @@ ParseArgs::argdesc argd = {
 			.name = "rect",
 			.expr_name = "rect",
 			.desc = "Draw bounding rectangles"
+		},
+		{
+			.var = { .arg_flag = &oblique },
+			.abbr = 'O',
+			.name = "oblique",
+			.expr_name = "oblique",
+			.desc = "Draw the glyphs using a sheer transform"
 		},
 		{
 			.var = { .arg_real = &tolerance },
@@ -2194,6 +2226,12 @@ main()
 {
 	rect_t[] template;
 	ParseArgs::parseargs(&argd, &argv);
+
+	if (version) {
+		printf("%s %s\n", argv[0], project_version);
+		exit(0);
+	}
+
 	if (is_uninit(&user_argind))
 		user_argind = dim(argv);
 	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };

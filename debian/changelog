@@ -1,3 +1,9 @@
+gcode-text (0.3-1) unstable; urgency=medium
+
+  * Add SVG output support
+
+ -- Keith Packard <keithp@keithp.com>  Thu, 30 Nov 2023 16:47:13 -0800
+
 gcode-text (0.2-1) unstable; urgency=medium
 
   * Add device config file support.

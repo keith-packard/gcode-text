@@ -23,6 +23,8 @@ import json
 import sys
 import argparse
 import csv
+import os
+import numbers
 from io import StringIO
 
 class Point:
@@ -34,7 +36,7 @@ class Point:
         self.y = y
 
     def __str__(self) -> str:
-        return "<%f,%f>" % (self.x, self.y)
+        return "%f,%f" % (self.x, self.y)
 
 
     def lerp_half(self, o) -> Point:
@@ -250,7 +252,7 @@ class Spline:
 
     def decompose(self, tolerance_squared: float) -> tuple[Point]:
         if self.error_squared() <= tolerance_squared:
-            return (self.a)
+            return (self.d,)
         else:
             d = self.de_casteljau()
             return d[0].decompose(tolerance_squared) + d[1].decompose(tolerance_squared)
@@ -279,7 +281,6 @@ class LineDraw(Draw):
         ps = s.decompose(self.tolerance * self.tolerance)
         for p in ps:
             self.draw(p.x, p.y)
-        self.draw(x3, y3)
 
 
 class MatrixDraw(Draw):
@@ -1623,6 +1624,13 @@ font = Font(
     )
 
 
+def config_open(name: str, args):
+    try:
+        return open(name)
+    except FileNotFoundError:
+        return open(os.path.join(args.config_dir, name))
+
+
 class Device:
     start: str = "G90\nG17\n"
     settings: str = ""
@@ -1684,8 +1692,8 @@ class Device:
         for i in range(min(len(setting_values), len(self.setting_values))):
             self.setting_values[i] = setting_values[i]
 
-    def set_json_file(self, json_file: str):
-        with open(json_file, "r") as file:
+    def set_json_file(self, json_file: str, args):
+        with config_open(json_file, args) as file:
             self.set_values(json.load(file))
 
 
@@ -1736,7 +1744,7 @@ class GCode(Draw):
         print("%s" % self.device.stop, file=self.f, end="")
 
     def get_draw(self):
-        if self.device.curve == "":
+        if self.device.curve == "" or self.args.tesselate:
             return LineDraw(self, self.args.flatness)
         return self
 
@@ -1757,7 +1765,7 @@ class GCode(Draw):
         text_height = metrics.ascent + metrics.descent
 
         if self.args.oblique:
-            text_width += text_height * self.args.oblique_sheer
+            text_width += text_height * self.args.sheer
 
         if text_width / text_height > rect_width / rect_height:
             scale = rect_width / text_width
@@ -1773,7 +1781,7 @@ class GCode(Draw):
             text_off_y + r.top_left.y + self.args.border,
         )
         if self.args.oblique:
-            matrix = matrix.sheer(-self.args.oblique_sheer, 0)
+            matrix = matrix.sheer(-self.args.sheer, 0)
 
         matrix = matrix.scale(scale, scale)
         if self.device.y_invert:
@@ -1801,6 +1809,8 @@ def Args():
                         help='Draw bounding rectangles')
     parser.add_argument('-O', '--oblique', action='store_true',
                         help='Draw the glyphs using a sheer transform')
+    parser.add_argument('--tesselate', action='store_true',
+                        help='Force tesselation of splines')
     parser.add_argument('--sheer', action='store', type=float,
                         help='Oblique sheer amount',
                         default=0.1)
@@ -1855,6 +1865,7 @@ def Args():
     parser.add_argument('-T', '--text', action='store',
                         help='Text string')
     parser.add_argument('-C', '--config-dir', action='store',
+                        default='@SHARE_DIR@',
                         help='Directory containing device configuration files')
     parser.add_argument('file', nargs='*',
                         help='Text source files')
@@ -1878,10 +1889,29 @@ def finite_rects(args):
     return args.template is not None
 
 
+def validate_template(template):
+    if not isinstance(template, list):
+        print('template is not an array', file=sys.stderr)
+        return False
+    for e in tuple(template):
+        if not isinstance(e, list):
+            print('template element %s is not an array' % (e,), file=sys.stderr)
+            return False
+        if len(e) != 4:
+            print('template element %s does not contain four values' % (e,), file=sys.stderr)
+            return False
+        for v in tuple(e):
+            if not isinstance(v, numbers.Number):
+                print('template value %r is not a number' % (v,), file=sys.stderr)
+                return False
+    return True
+
 def get_rect(args):
     if args.template is not None:
-        with open(args.template) as file:
+        with config_open(args.template, args) as file:
             rects = json.load(file)
+            if not validate_template(rects):
+                raise TypeError
         for r in rects:
             yield Rect(Point(r[0], r[1]), Point(r[0] + r[2], r[1] + r[3]))
     else:
@@ -1914,7 +1944,7 @@ def main():
     args = Args()
     device = Device()
     if args.device:
-        device.set_json_file(args.device)
+        device.set_json_file(args.device, args)
 
     output = sys.stdout
     if args.output != '-':
@@ -1930,7 +1960,7 @@ def main():
         try:
             rect = next(rect_gen)
             line = next(line_gen)
-            print("rect %s line %s" % (rect, line))
+            print('%s "%s"' % (rect, line))
             gcode.text_into_rect(rect, line)
         except StopIteration:
             break

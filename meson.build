@@ -18,6 +18,12 @@ configure_file(input: 'gcode-text.5c',
 	       install_dir: get_option('bindir')
 	      )
 
+configure_file(input: 'gcode_text.py',
+	       output: 'gcode_text',
+	       configuration: dirs_data,
+	       install_mode: 'rwxr-xr-x',
+	       install_dir: get_option('bindir'))
+
 install_man('gcode-text.1')
 
 device_files = [
@@ -26,3 +32,9 @@ device_files = [
   ]
 
 install_data(device_files)
+
+template_files = [
+  'sample-template.json',
+  ]
+
+install_data(template_files)

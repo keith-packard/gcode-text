@@ -25,6 +25,7 @@ import argparse
 import csv
 import os
 import numbers
+from typing import Any
 from io import StringIO
 
 class Point:
@@ -70,7 +71,7 @@ class Point:
         num = abs(A * self.x + B * self.y + C)
         den = A * A + B * B
         if den == 0:
-            return self._distance_to_point_squared(p1)
+            return self.distance_to_point_squared(p1)
         else:
             return (num * num) / den
 
@@ -250,7 +251,7 @@ class Spline:
 
         return max(berr, cerr)
 
-    def decompose(self, tolerance_squared: float) -> tuple[Point]:
+    def decompose(self, tolerance_squared: float) -> tuple[Point, ...]:
         if self.error_squared() <= tolerance_squared:
             return (self.d,)
         else:
@@ -523,13 +524,14 @@ class Font:
 
     def text_metrics(self, s: str) -> TextMetrics:
         x = 0.0
-        ret = None
+        ret = TextMetrics()
+        started = False
         for g in s:
             m = self.glyph_metrics(ord(g))
             m.left_side_bearing += x
             m.right_side_bearing += x
             m.width += x
-            if ret:
+            if started:
                 ret.left_side_bearing = min(ret.left_side_bearing, m.left_side_bearing)
                 ret.right_side_bearing = max(
                     ret.right_side_bearing, m.right_side_bearing
@@ -539,6 +541,7 @@ class Font:
                 ret.width = max(ret.width, m.width)
             else:
                 ret = m
+                started = True
             x = m.width
         return ret
 
@@ -1680,7 +1683,7 @@ class Device:
             elif key == "stop":
                 self.stop = value
 
-    def set_json(self, json: str):
+    def set_json(self, str: str):
         self.set_values(json.loads(str))
 
     def set_settings(self, settings: str):
@@ -1698,11 +1701,11 @@ class Device:
 
 
 class GCode(Draw):
-    f: any
+    f: Any
     device: Device
-    args: any
+    args: Any
 
-    def __init__(self, f: any, device: Device, args):
+    def __init__(self, f: Any, device: Device, args):
         self.f = f
         self.device = device
         self.args = args

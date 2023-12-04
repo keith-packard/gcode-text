@@ -8,7 +8,7 @@ gcode-text [options] [input files] ...
 \fIGcode-text\fP renders stroked text to gcode, using glyphs
 originally derived from the Hershey fonts. Each line of text is
 rendered to separate rectangle, where rectangles may be defined
-using a gcode template or parametrically on the command line.
+using a template or parametrically on the command line.
 .PP
 The source text may come from text files or from command line
 arguments.
@@ -33,6 +33,9 @@ Use millimeter units in the generated file.
 .BI "-O,--oblique"
 Add a slight sheer transform in X.
 .TP
+.BI "--tesselate"
+Tesselate splines even when the output device supports them natively.
+.TP
 .BI "-f,--flatness " flatness
 Set the spline decomposition tolerance in output units. The default is
 0.001.
@@ -40,12 +43,16 @@ Set the spline decomposition tolerance in output units. The default is
 .BI "-s,--speed " speed
 Set the feed rate
 .TP
+.BI "--sheer " sheer
+Set the amount of sheer for oblique fonts. The default is 0.1
+.TP
 .BI "-t,--template " template
-Specifies a gcode template file. The bounding box of each separate
-polygon in the template specifies a region for one line of text.
+Specifies a template file. Template files are in JSON format and
+consist of an array of rectangles, each rectangle is an array of
+four values -- [x, y, width, height].
 .TP
 .BI "-d,--device " device-spec
-Specifies a device template file. This is a JSON file containing
+Specifies a device file. This is a JSON file containing
 definitions for drawing to the target. See the DEVICE SPEC section
 below.
 .TP
@@ -101,7 +108,7 @@ $ gcode-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
 .PP
 Draw numbers starting at 1 using the sample template
 .nf
-$ gcode-text -o output.gcode -v 1 -t template
+$ gcode-text -o output.gcode -v 1 -t sample-template.json
 .fi
 .PP
 Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes

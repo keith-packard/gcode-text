@@ -2,7 +2,7 @@
 Copyright © 2023 Keith Packard
 
 Gcode-text renders text to gcode. The user defines a set of
-rectangular regions, either on the command line or as a gcode template
+rectangular regions, either on the command line or as a JSON template
 file. Each rectangle is then filled with text, either read from files
 or provided as command line arguments.
 
@@ -48,7 +48,7 @@ Draw "hello world" into a 4"x1" box at 1"x1"
 
 Draw numbers starting at 1 using the sample template
 
-	$ gcode-text -o output.gcode -v 1 -t template
+	$ gcode-text -o output.gcode -v 1 -t sample-template.json
 
 Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes
 spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a

@@ -1485,7 +1485,7 @@ _spline_decompose (void(real x, real y) draw,
 {
     if (_spline_error_squared (spline) <= tolerance_squared)
     {
-	draw (spline->a.x, spline->a.y);
+	draw (spline->d.x, spline->d.y);
     }
     else
     {
@@ -1615,6 +1615,8 @@ string share_dir = "@SHARE_DIR@"; /* --config-dir */
 string settings = "";		/* --settings */
 bool version = false;		/* --version */
 bool oblique = false;		/* --oblique */
+real oblique_sheer = 0.1;	/* --sheer */
+bool force_tesselate = false;	/* --tesselate */
 
 string project_version = "@VERSION@";
 int user_argind;
@@ -1674,7 +1676,7 @@ string
 whole_file(string file_name)
 {
 	string	ret = "";
-	twixt(file f = device_open(device_name); File::close(f)) {
+	twixt(file f = device_open(file_name); File::close(f)) {
 		while (!File::end(f)) {
 			string line = File::fgets(f);
 			ret = ret + line;
@@ -1868,7 +1870,7 @@ gcode_curve(file f, real x1, real y1, real x2, real y2, real x3, real y3)
 		gcode_draw(f, x, y);
 	}
 
-	if (device.curve != "") {
+	if (device.curve != "" && !force_tesselate) {
 		if (device.speed)
 			File::fprintf(f, device.curve, x1, y1, x2, y2, x3, y3, feed_rate);
 		else
@@ -1881,7 +1883,6 @@ gcode_curve(file f, real x1, real y1, real x2, real y2, real x3, real y3)
 			.d = spoint(x3, y3),
 		};
 		_spline_decompose(cdraw, &spline, tolerance**2);
-		cdraw(x3, y3);
 	}
 	last_x = x3;
 	last_y = y3;
@@ -1959,72 +1960,27 @@ read_token(file f)
 }
 
 /*
- * Parse a gcode file, computing the bounding box
- * for each polygon in the file
+ * Parse a template file
  */
 rect_t[...]
 parse_template(string file_name)
 {
-	int code = -1;
 	rect_t[...] ret = {};
-	rect_t cur = {
-		.top_left = { .x = 0, .y = 0 },
-		.bottom_right = { .x = 0, .y = 0 }
-	};
+	poly p = JSON::from_json(whole_file(file_name));
 
-	void add_rect() {
-		if (!rect_is_empty(&cur)) {
-			ret[dim(ret)] = cur;
-		}
-		cur = (rect_t) {
-			.top_left = { .x = 0, .y = 0 },
-			.bottom_right = { .x = 0, .y = 0 }
+	real[...][4] pr = p;
+
+	for (int i = 0; i < dim(pr); i++) {
+		ret[dim(ret)] = (rect_t) {
+			.top_left = (spoint_t) {
+				.x = pr[i][0],
+				.y = pr[i][1]
+			},
+			.bottom_right = (spoint_t) {
+				.x = pr[i][0] + pr[i][2],
+				.y = pr[i][1] + pr[i][3]
+			},
 		};
-	}
-
-	twixt(file f = File::open(file_name, "r"); File::close(f)) {
-		real x, y;
-		for (;;) {
-			try {
-				token_t token = read_token(f);
-				switch (token.letter) {
-				case 'G':
-					code = floor(token.value);
-					break;
-				case 'X':
-					x = token.value;
-					switch (code) {
-					case 0:
-						add_rect();
-						cur.top_left.x = x;
-						cur.bottom_right.x = x;
-						break;
-					case 1:
-						cur.top_left.x = min(cur.top_left.x, x);
-						cur.bottom_right.x = max(cur.bottom_right.x, x);
-						break;
-					}
-					break;
-				case 'Y':
-					y = token.value;
-					switch (code) {
-					case 0:
-						add_rect();
-						cur.top_left.y = y;
-						cur.bottom_right.y = y;
-						break;
-					case 1:
-						cur.top_left.y = min(cur.top_left.y, y);
-						cur.bottom_right.y = max(cur.bottom_right.y, y);
-						break;
-					}
-					break;
-				}
-			} catch File::io_eof(file f) {
-				add_rect();
-				break;
-			}
-		}
 	}
 	return ret;
 }
@@ -2034,8 +1990,6 @@ parse_template(string file_name)
  * by scaling the text to fit subtracting off the 'border'
  * on all four sides
  */
-
-real oblique_sheer = 0.1;
 
 void
 text_into_rect(file f, rect_t rect, string line)
@@ -2132,6 +2086,18 @@ ParseArgs::argdesc argd = {
 			.name = "flatness",
 			.expr_name = "flatness",
 			.desc = "Spline decomposition tolerance"
+		},
+		{
+			.var = { .arg_real = &oblique_sheer },
+			.name = "sheer",
+			.expr_name = "sheer",
+			.desc = "Set the sheer value for oblique glyphs"
+		},
+		{
+			.var = { .arg_flag = &force_tesselate },
+			.name = "tesselate",
+			.expr_name = "tesselate",
+			.desc = "Force tesselation of splines"
 		},
 		{
 			.var = { .arg_real = &feed_rate },
@@ -2306,8 +2272,9 @@ main()
 			File::close(f);
 	}
 
-	if (template_name != "")
+	if (template_name != "") {
 		template = parse_template(template_name);
+	}
 
 	/* Return the next line of text */
 	string next_line()

@@ -39,41 +39,9 @@ class Point:
     def __str__(self) -> str:
         return "%f,%f" % (self.x, self.y)
 
-
     def lerp_half(self, o) -> Point:
         """Return the point midway between self and o"""
         return Point(self.x + (o.x - self.x) / 2, self.y + (o.y - self.y) / 2)
-
-    def distance_to_point_squared(self, b) -> float:
-        dx = b.x - self.x
-        dy = b.y - self.y
-
-        return dx * dx + dy * dy
-
-    def distance_to_line_squared(self, p1, p2) -> float:
-        #
-        #  Convert to normal form (AX + BY + C = 0)
-        #
-        #  (X - x1) * (y2 - y1) = (Y - y1) * (x2 - x1)
-        #
-        #  X * (y2 - y1) - Y * (x2 - x1) - x1 * (y2 - y1) + y1 * (x2 - x1) = 0
-        #
-        #  A = (y2 - y1)
-        #  B = (x1 - x2)
-        #  C = (y1x2 - x1y2)
-        #
-        #  distance² = (AX + BC + C)² / (A² + B²)
-        #
-        A = p2.y - p1.y
-        B = p1.x - p2.x
-        C = p1.y * p2.x - p1.x * p2.y
-
-        num = abs(A * self.x + B * self.y + C)
-        den = A * A + B * B
-        if den == 0:
-            return self.distance_to_point_squared(p1)
-        else:
-            return (num * num) / den
 
 
 class Rect:
@@ -229,6 +197,9 @@ class Spline:
         self.c = c
         self.d = d
 
+    def __str__(self) -> str:
+        return "%s %s %s %s" % (self.a, self.b, self.c, self.d)
+
     def de_casteljau(self) -> tuple[Spline,Spline]:
         ab = self.a.lerp_half(self.b)
         bc = self.b.lerp_half(self.c)
@@ -240,23 +211,34 @@ class Spline:
         return (Spline(self.a, ab, abbc, final), Spline(final, bccd, cd, self.d))
 
     #
-    # Return an upper bound on the error (squared) that could
+    # Return an upper bound on the error (squared * 16) that could
     # result from approximating a spline as a line segment
     # connecting the two endpoints
     #
+    # From https://hcklbrrfnn.files.wordpress.com/2012/08/bez.pdf
+    #
 
     def error_squared(self) -> float:
-        berr = self.b.distance_to_line_squared(self.a, self.d)
-        cerr = self.c.distance_to_line_squared(self.a, self.d)
+        ux = 3 * self.b.x - 2 * self.a.x - self.d.x
+        uy = 3 * self.b.y - 2 * self.a.y - self.d.y
+        vx = 3 * self.c.x - 2 * self.d.x - self.a.x
+        vy = 3 * self.c.y - 2 * self.d.y - self.a.y
 
-        return max(berr, cerr)
+        ux *= ux
+        uy *= uy
+        vx *= vx
+        vy *= vy
+        if ux < vx:
+            ux = vx
+        if uy < vy:
+            uy = vy
+        return ux + uy
 
-    def decompose(self, tolerance_squared: float) -> tuple[Point, ...]:
-        if self.error_squared() <= tolerance_squared:
+    def decompose(self, tolerance: float) -> tuple[Point, ...]:
+        if self.error_squared() <= 16 * tolerance * tolerance:
             return (self.d,)
-        else:
-            d = self.de_casteljau()
-            return d[0].decompose(tolerance_squared) + d[1].decompose(tolerance_squared)
+        (s1, s2) = self.de_casteljau()
+        return s1.decompose(tolerance) + s2.decompose(tolerance)
 
 
 class LineDraw(Draw):
@@ -279,7 +261,7 @@ class LineDraw(Draw):
         s = Spline(
             Point(self.last_x, self.last_y), Point(x1, y1), Point(x2, y2), Point(x3, y3)
         )
-        ps = s.decompose(self.tolerance * self.tolerance)
+        ps = s.decompose(self.tolerance)
         for p in ps:
             self.draw(p.x, p.y)
 
@@ -1885,7 +1867,7 @@ def Args():
         print("%s" % '@VERSION@')
         sys.exit(0)
 
-    return args;
+    return args
     
 
 def finite_rects(args):

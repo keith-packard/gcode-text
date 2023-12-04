@@ -1,3 +1,11 @@
+gcode-text (0.5-1) unstable; urgency=medium
+
+  * Switch to python
+  * Change template to JSON format
+  * Add --sheer and --tesselate options
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 03 Dec 2023 17:26:02 -0800
+
 gcode-text (0.4-1) unstable; urgency=medium
 
   * Add spline output support

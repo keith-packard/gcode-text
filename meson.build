@@ -1,6 +1,6 @@
 project('gcode-text',
 	license : 'GPLv2',
-	version: '0.4'
+	version: '0.5'
        )
 
 share_dir = get_option('prefix') / get_option('datadir') / meson.project_name()

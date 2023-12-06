@@ -473,7 +473,8 @@ class Font:
             elif op == "e":
                 return self.glyph_width(glyph_start)
             else:
-                print("unknown font op %s" % op)
+                print("unknown font op %s in glyph %d" % (op, ucs4))
+                raise ValueError
                 return self.glyph_width(glyph_start)
 
     #

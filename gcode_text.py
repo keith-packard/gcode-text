@@ -1938,7 +1938,7 @@ def get_line(args):
     for name in args.file:
         with open(name, "r") as f:
             for l in f.readlines():
-                yield l
+                yield l.strip()
 
 def main():
     args = Args()

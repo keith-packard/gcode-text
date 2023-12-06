@@ -36,6 +36,7 @@ install_man('gcode-text.1')
 
 device_files = [
   'device-default.json',
+  'laser-grbl.json',
   'svg.json'
   ]
 

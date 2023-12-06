@@ -1,0 +1,12 @@
+{
+    "start" : "G90\nG17\nG49\n",
+    "settings" : "M08\nM04 S%s\n",
+    "setting-values": ["500"],
+    "inch" : "G20\n",
+    "mm" : "G10\n",
+    "move" : "G00 X%f Y%f\n",
+    "draw" : "G01 X%f Y%f F%f\n",
+    "speed" : "true",
+    "y-invert" : "true",
+    "stop" : "M05\nG00 X0 Y0\nM09\nM30\n"
+}

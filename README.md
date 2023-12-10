@@ -67,3 +67,9 @@ Draw the SVG sample below
 	$ gcode-text -o gcode-text.svg -d svg.json -T "Gcode-text (SVG)" -x 0 -y 0 -w 640 -h 100 -b 10 -S "640,100,5"
 
 ![sample svg output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.svg)
+
+Draw all of the characters available:
+
+	$ gcode-text d svg.json -x 0 -y 0 -w 1600 -h 100 -X 0 -Y 120 --border 10 -o charset.svg --settings 1600,2280,4 charset
+
+![charset svg output](https://github.com/keith-packard/gcode-text/raw/main/charset.svg)

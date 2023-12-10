@@ -1,0 +1,1428 @@
+/*
+ * Copyright © 2023 Keith Packard <keithp@keithp.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA.
+ */
+
+autoload Cairo;
+
+autoload Nichrome;
+autoload Nichrome::Box;
+autoload Nichrome::Label;
+autoload Nichrome::Button;
+autoload Nichrome::Textline;
+
+autoload Sort;
+
+typedef struct {
+	int	left_side_bearing;
+	int	right_side_bearing;
+	int	ascent;
+	int	descent;
+} metrics_t;
+
+typedef struct {
+	int		ucs4;
+	metrics_t	metrics;
+	int[...]	snap_x;
+	int[...]	snap_y;
+	int[...]	outline;
+} glyph_t;
+
+glyph_t sample_glyph = {
+	.ucs4 = 0xae,
+	.metrics = {
+		.left_side_bearing = 0,
+		right_side_bearing = 30,
+		.ascent = 34,
+		.descent = 0,
+	},
+	.snap_x = { 0, 9, 24},
+	.snap_y = {-28, -25, -15, 0},
+	.outline = {
+    'm', 15, -30,
+    'c', 6, -30, 0, -24, 0, -15,
+    'c', 0, -6, 6, 0, 15, 0,
+    'c', 24, 0, 30, -6, 30, -15,
+    'c', 30, -24, 24, -30, 15, -30,
+    'm', 9, -5,
+    'l', 9, -25,
+    'l', 18, -25,
+    'c', 24, -25, 24, -15, 18, -15,
+    'l', 9, -15,
+    'm', 16, -15,
+    'l', 22, -5,
+    'e',
+	}
+};
+
+/*
+ * Draw callbacks provided to the glyph drawing function
+ */
+typedef struct {
+	void(real x, real y) move;
+	void(real x, real y) line;
+	void(real x1, real y1, real x2, real y2, real x3, real y3) curve;
+	void(int offset) offset;
+} draw_calls_t;
+
+/*
+ * Draw a glyph using the provide callbacks.
+ */
+void
+glyph_path(&glyph_t glyph, &draw_calls_t calls)
+{
+	real	x1, y1, x2, y2, x3, y3, _x1, _y1;
+	int	op;
+	int	offset = 0;
+
+	x1 = y1 = 0;
+
+	int value() { return glyph.outline[offset++]; }
+
+	for (;;) {
+		if (!is_uninit(&calls.offset))
+			calls.offset(offset);
+		op = value();
+
+		switch (op) {
+		case 'm':
+			x1 = value();
+			y1 = value();
+			calls.move (x1, y1);
+			continue;
+		case 'l':
+			x1 = value();
+			y1 = value();
+			calls.line (x1, y1);
+			continue;
+		case 'c':
+			x3 = value();
+			y3 = value();
+			x2 = value();
+			y2 = value();
+			x1 = value();
+			y1 = value();
+			calls.curve (x3, y3, x2, y2, x1, y1);
+			continue;
+		case '2':
+			/* Compute the equivalent cubic spline */
+			_x1 = value();
+			_y1 = value();
+			x3 = x1 + 2 * (_x1 - x1) / 3;
+			y3 = y1 + 2 * (_y1 - y1) / 3;
+			x1 = value();
+			y1 = value();
+			x2 = x1 + 2 * (_x1 - x1) / 3;
+			y2 = y1 + 2 * (_y1 - y1) / 3;
+			calls.curve (x3, y3, x2, y2, x1, y1);
+			continue;
+		case 'e':
+			break;
+		default:
+			printf("unknown glyph op 0x%02x '%c'\n", op, op);
+			break;
+		}
+		break;
+	}
+}
+
+void print_outline(file f, &int[...] outline)
+{
+	int offset = 0;
+	bool done = false;
+	while (!done) {
+		File::fprintf(f, "    '%c',", outline[offset]);
+		int count = 0;
+		switch (outline[offset++]) {
+		case 'm':
+		case 'l':
+			count = 2;
+			break;
+		case 'c':
+			count = 6;
+			break;
+		case '2':
+			count = 4;
+			break;
+		case 'e':
+			done = true;
+			count = 0;
+		default:
+			done = true;
+			count = 0;
+		}
+		for (int i = 0; i < count; i++)
+			File::fprintf(f, " %d,", outline[offset++]);
+		File::fprintf(f, "\n");
+	}
+}
+
+void print_glyph(file f, &glyph_t glyph)
+{
+	&metrics_t metrics = &glyph.metrics;
+	File::fprintf(f, "   0x%02x, # '%c'\n", glyph.ucs4, glyph.ucs4);
+	File::fprintf(f, "    %d, %d, %d, %d, %d, %d,\n",
+	       metrics.left_side_bearing,
+	       metrics.right_side_bearing,
+	       metrics.ascent,
+	       metrics.descent,
+	       dim(glyph.snap_x),
+	       dim(glyph.snap_y));
+	File::fprintf(f, "   ");
+	for (int i = 0; i < dim(glyph.snap_x); i++)
+		File::fprintf(f, " %d,", glyph.snap_x[i]);
+	File::fprintf(f, " #  snap_x\n");
+	File::fprintf(f, "   ");
+	for (int i = 0; i < dim(glyph.snap_y); i++)
+		File::fprintf(f, " %d,", glyph.snap_y[i]);
+	File::fprintf(f, " #  snap_y\n");
+	print_outline(f, &glyph.outline);
+}
+
+int[...] parse_line(string line)
+{
+	int[...] elts = {};
+	line = String::split(line, "#")[0];
+	string[*] bits = String::parse_csv(line);
+	for (int i = 0; i < dim (bits); i++) {
+		if (String::length(bits[i]) == 0)
+			continue;
+		string elt = String::chomp(bits[i]);
+		int value = 0;
+		if (elt[0] == '\'')
+			value = elt[1];
+		else
+			value = atoi(elt);
+		elts[dim(elts)] = value;
+	}
+	return elts;
+}
+
+glyph_t read_glyph(file f)
+{
+	string ucs_line = File::fgets(f);
+	int ucs4 = parse_line(ucs_line)[0];
+
+	string metrics_line = File::fgets(f);
+	int[...] metrics_bits = parse_line(metrics_line);
+
+	metrics_t metrics = (metrics_t) {
+		.left_side_bearing = metrics_bits[0],
+		.right_side_bearing = metrics_bits[1],
+		.ascent = metrics_bits[2],
+		.descent = metrics_bits[3],
+	};
+
+	int n_snap_x = metrics_bits[4];
+	int n_snap_y = metrics_bits[5];
+
+	string snap_x_line = File::fgets(f);
+	int[...] snap_x = parse_line(snap_x_line);
+
+	string snap_y_line = File::fgets(f);
+	int[...] snap_y = parse_line(snap_y_line);
+
+	bool done = false;
+	int[...] outline = {};
+
+	while(!done) {
+		string line = File::fgets(f);
+		string[*] bits = String::parse_csv(line);
+		int[...] add = parse_line(line);
+		if (dim(add) > 0)
+			outline = (int[dim(outline) + dim(add)]) { [i] = i < dim(outline) ? outline[i] : add[i-dim(outline)] };
+		if (add[0] == 'e')
+			done = true;
+	}
+	return (glyph_t) {
+		.ucs4 = ucs4,
+		.metrics = metrics,
+		.snap_x = snap_x,
+		.snap_y = snap_y,
+		.outline = outline
+	};
+}
+
+extend namespace Nichrome {
+	public namespace Glyphed {
+
+		import Cairo;
+
+		const int rows = 64;
+		const int cols = 64;
+
+		protected typedef bool (&widget_t widget, string key) key_callback_t;
+
+		protected typedef void (&widget_t widget, string key) info_callback_t;
+
+		public typedef widget_t + struct {
+			key_callback_t	key_callback;
+			info_callback_t	info_callback;
+			rgba_color_t	stroke;
+			rgba_color_t	highlight;
+			rgba_color_t	bounds;
+			rgba_color_t	bounds_high;
+			rgba_color_t	spot;
+			rgba_color_t	select;
+			rgba_color_t	grid;
+			rgba_color_t	baseline;
+			&glyph_t	glyph;
+			int		start_coord;
+			int		end_coord;
+			int		max_coord;
+			int		cur_offset;
+			int		cur_element;
+		} glyphed_t;
+
+		const int min_coord = -4;
+		const int lsb_coord = -4;
+		const int rsb_coord = -3;
+		const int ascent_coord = -2;
+		const int descent_coord = -1;
+
+		const int font_ascent = 50;
+
+		void info(&glyphed_t glyphed, string format, args...) {
+			if (!is_uninit(&glyphed.info_callback))
+				glyphed.info_callback(&glyphed, sprintf(format, args...));
+		}
+
+		bool has_focus(&glyphed_t glyphed) {
+			return &glyphed == &glyphed.nichrome.key_focus;
+		}
+
+		string bound_info(&glyphed_t glyphed, int bound) {
+			&metrics_t metrics = &glyphed.glyph.metrics;
+			switch (bound) {
+			case lsb_coord:
+				return sprintf("left side bearing <%f>", metrics.left_side_bearing);
+			case rsb_coord:
+				return sprintf("right side bearing <%f>", metrics.right_side_bearing);
+			case ascent_coord:
+				return sprintf("ascent <%f>", metrics.ascent);
+			case descent_coord:
+				return sprintf("descent <%f>", metrics.descent);
+			default:
+				return "???";
+			}
+		}
+
+		/* Convert a coordinate number to the offset of
+		 * the containing element within the outline and
+		 * the offset of the X value (Y is +1).
+		 * Returns {-1, -1} if the coord is not valid
+		 */
+		int[2] coord_to_offsets(&glyphed_t glyphed, int coord)
+		{
+			int cur_offset;
+			int cur_coord = 0;
+			int[2] ret_offsets = { -1, -1 };
+
+			void coord_offset(int offset)
+			{
+				cur_offset = offset;
+			}
+
+			void check_coord(int o)
+			{
+				if (cur_coord == coord) {
+					ret_offsets[0] = cur_offset;
+					ret_offsets[1] = cur_offset + 1 + 2 * o;
+				}
+				cur_coord++;
+			}
+
+			void coord_move(real x, real y)
+			{
+				check_coord(0);
+			}
+
+			void coord_line(real x, real y)
+			{
+				check_coord(0);
+			}
+
+			void coord_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				for (int i = 0; i < 3; i++)
+					check_coord(i);
+			}
+
+			draw_calls_t coord_calls = {
+				.move = coord_move,
+				.line = coord_line,
+				.curve = coord_curve,
+				.offset = coord_offset
+			};
+
+			glyph_path(&glyphed.glyph, &coord_calls);
+			return ret_offsets;
+		}
+
+		int coord_to_offset(&glyphed_t glyphed, int coord)
+		{
+			return coord_to_offsets(&glyphed, coord)[1];
+		}
+
+		int coord_to_element(&glyphed_t glyphed, int coord)
+		{
+			return coord_to_offsets(&glyphed, coord)[0];
+		}
+
+		int max_coord(&glyphed_t glyphed)
+		{
+			int coord = dim(glyphed.glyph.outline);
+
+			while (coord >= 0) {
+				if (coord_to_offset(&glyphed, coord) >= 0)
+					return coord;
+				coord--;
+			}
+			return -1;
+		}
+
+		bool is_selected(&glyphed_t glyphed, int coord, int num)
+		{
+			if (glyphed.start_coord <= glyphed.end_coord)
+				return glyphed.start_coord < coord + num && coord <= glyphed.end_coord;
+			else
+				return glyphed.end_coord < coord + num && coord <= glyphed.start_coord;
+		}
+
+		void bound(cairo_t cr, &glyphed_t glyphed, int bound)
+		{
+			if (has_focus(&glyphed) && is_selected(&glyphed, bound, 1)) {
+				set_source_rgba(cr, glyphed.bounds_high.red, glyphed.bounds_high.green,
+						glyphed.bounds_high.blue, glyphed.bounds_high.alpha);
+				set_line_width(cr, 0.5);
+				info (&glyphed, bound_info(&glyphed, bound));
+			} else {
+				set_source_rgba(cr, glyphed.bounds.red, glyphed.bounds.green,
+						glyphed.bounds.blue, glyphed.bounds.alpha);
+				set_line_width(cr, 0.25);
+			}
+			&metrics_t metrics = &glyphed.glyph.metrics;
+
+			real	x1 = metrics.left_side_bearing;
+			real	y1 = -metrics.ascent;
+			real	x2 = metrics.right_side_bearing;
+			real	y2 = metrics.descent;
+
+			switch (bound) {
+			case lsb_coord:
+				x1 = x2 = metrics.left_side_bearing;
+				break;
+			case rsb_coord:
+				x1 = x2 = metrics.right_side_bearing;
+				break;
+			case ascent_coord:
+				y1 = y2 = -metrics.ascent;
+				break;
+			case descent_coord:
+				y1 = y2 = metrics.descent;
+				break;
+			}
+			move_to(cr, x1, y1);
+			line_to(cr, x2, y2);
+			stroke(cr);
+		}
+
+		void draw_bounds(cairo_t cr, &glyphed_t glyphed)
+		{
+			&glyph_t glyph = &glyphed.glyph;
+			&metrics_t metrics = &glyph.metrics;
+			save(cr);
+			translate(cr, 0, font_ascent);
+			bound(cr, &glyphed, lsb_coord);
+			bound(cr, &glyphed, rsb_coord);
+			bound(cr, &glyphed, ascent_coord);
+			bound(cr, &glyphed, descent_coord);
+			restore(cr);
+		}
+
+		void draw_glyph(cairo_t cr, &glyphed_t glyphed)
+		{
+			&glyph_t glyph = &glyphed.glyph;
+
+			void whole_move(real x, real y) {
+				move_to(cr, x, y);
+			}
+
+			void whole_line(real x, real y) {
+				line_to(cr, x, y);
+			}
+
+			void whole_curve(real x1, real y1, real x2, real y2, real x3, real y3) {
+				curve_to(cr, x1, y1, x2, y2, x3, y3);
+			}
+
+			draw_calls_t whole_calls = {
+				.move = whole_move,
+				.line = whole_line,
+				.curve = whole_curve
+			};
+
+			int cur_coord;
+
+			void highlight_move(real x, real y)
+			{
+				move_to(cr, x, y);
+				cur_coord++;
+			}
+
+			void highlight_line(real x, real y)
+			{
+				if (is_selected(&glyphed, cur_coord, 1))
+					line_to(cr, x, y);
+				else
+					move_to(cr, x, y);
+				cur_coord++;
+			}
+
+			void highlight_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				if (is_selected(&glyphed, cur_coord, 3))
+					curve_to(cr, x1, y1, x2, y2, x3, y3);
+				else
+					move_to(cr, x3, y3);
+				cur_coord += 3;
+			}
+
+			draw_calls_t highlight_calls  = {
+				.move = highlight_move,
+				.line = highlight_line,
+				.curve = highlight_curve,
+			};
+
+			int cur_offset;
+
+			bool spot(int coord, real x, real y)
+			{
+				bool ret = false;
+				if (is_selected(&glyphed, cur_coord + coord, 1)) {
+					set_source_rgba(cr, glyphed.select.red, glyphed.select.green,
+							glyphed.select.blue, glyphed.select.alpha);
+					glyphed.cur_offset = cur_offset + 1 + 2 * coord;
+					glyphed.cur_element = cur_offset;
+					ret = true;
+				} else
+					set_source_rgba(cr, glyphed.spot.red, glyphed.spot.green,
+							glyphed.spot.blue, glyphed.spot.alpha);
+				arc(cr, x, y, 0.5, 0, pi * 2);
+				fill(cr);
+				return ret;
+			}
+
+			void spot_offset(int offset)
+			{
+				cur_offset = offset;
+			}
+
+			real cur_x, cur_y;
+
+			void spot_move(real x, real y)
+			{
+				if (is_selected(&glyphed, cur_coord, 1))
+					if (spot(0, x, y))
+						info(&glyphed, "move <%f %f>", x, y);
+				cur_x = x;
+				cur_y = y;
+				cur_coord++;
+			}
+
+			void spot_line(real x, real y)
+			{
+				if (is_selected(&glyphed, cur_coord, 1))
+					if (spot(0, x, y))
+						info(&glyphed, "line <%f %f> - <%f %f> [%f %f]", cur_x, cur_y, x, y, x - cur_x, y - cur_y);
+				cur_x = x;
+				cur_y = y;
+				cur_coord++;
+			}
+
+			void spot_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				if (is_selected(&glyphed, cur_coord, 3)) {
+					bool chatty = false;
+					if (spot(0, x1, y1))
+						chatty = true;
+					if (spot(1, x2, y2))
+						chatty = true;
+					if (spot(2, x3, y3))
+						chatty = true;
+					if (chatty)
+						info(&glyphed, "curve <%f %f> <%f %f> [%f %f] <%f %f> [%f %f] <%f %f> [%f %f]",
+						     cur_x, cur_y,
+						     x1, y1, x1 - cur_x, y1 - cur_y,
+						     x2, y2, x2 - cur_x, y2 - cur_y,
+						     x3, y3, x3 - cur_x, y3 - cur_y);
+				}
+				cur_x = x3;
+				cur_y = y3;
+				cur_coord += 3;
+			}
+
+			draw_calls_t spot_calls = {
+				.move = spot_move,
+				.line = spot_line,
+				.curve = spot_curve,
+				.offset = spot_offset,
+			};
+
+			save(cr);
+			set_line_width(cr, 0.5);
+			translate(cr, 0, 50);
+			set_line_cap(cr, line_cap_t.ROUND);
+			set_line_join(cr, line_join_t.ROUND);
+			set_source_rgba(cr, glyphed.stroke.red, glyphed.stroke.green,
+					glyphed.stroke.blue, glyphed.stroke.alpha);
+			glyph_path(&glyph, &whole_calls);
+			stroke(cr);
+			if (has_focus(&glyphed)) {
+				set_line_width(cr, 0.5);
+				set_line_cap(cr, line_cap_t.ROUND);
+				set_line_join(cr, line_join_t.ROUND);
+				cur_coord = 0;
+				set_source_rgba(cr, glyphed.highlight.red, glyphed.highlight.green,
+						glyphed.highlight.blue, glyphed.highlight.alpha);
+				glyph_path(&glyph, &highlight_calls);
+				stroke(cr);
+				glyphed.start_coord = min(glyphed.start_coord, cur_coord - 1);
+				glyphed.end_coord = min(glyphed.end_coord, cur_coord - 1);
+				glyphed.max_coord = cur_coord;
+				cur_coord = 0;
+				glyphed.cur_offset = -1;
+				glyphed.cur_element = -1;
+				glyph_path(&glyph, &spot_calls);
+			}
+			restore(cr);
+		}
+
+		void draw_grid(cairo_t cr, &glyphed_t glyphed) {
+			set_line_width(cr, 2/rows);
+			for (int col = 0; col < cols; col++) {
+				real alpha = glyphed.grid.alpha;
+				if (col % 5 != 0)
+					alpha = alpha / 2;
+				set_source_rgba(cr, glyphed.grid.red, glyphed.grid.green,
+						glyphed.grid.blue, alpha);
+				move_to(cr, col, -0.5);
+				line_to(cr, col, rows - 0.5);
+				stroke(cr);
+			}
+			for (int row = 0; row < rows; row++) {
+				if (row == font_ascent) {
+					set_source_rgba(cr, glyphed.baseline.red, glyphed.baseline.green,
+							glyphed.baseline.blue, glyphed.baseline.alpha);
+					set_line_width(cr, 0.1);
+				} else {
+					real alpha = glyphed.grid.alpha;
+					if (row % 5 != 0)
+						alpha = alpha / 2;
+					set_source_rgba(cr, glyphed.grid.red, glyphed.grid.green,
+							glyphed.grid.blue, alpha);
+					set_line_width(cr, 2/rows);
+				}
+				move_to(cr, -0.5, row);
+				line_to(cr, cols - 0.5, row);
+				stroke(cr);
+			}
+		}
+
+		void paint(cairo_t cr, &glyphed_t glyphed) {
+			real size = min(glyphed.geometry.width, glyphed.geometry.height);
+			real pad_x = size / 20;
+			real pad_y = size / 20;
+			real delta_x = (size - pad_x * 2) / rows;
+			real off_x = pad_x + delta_x / 2 + (glyphed.geometry.width - size) / 2;
+			real delta_y = (size - pad_y * 2) / cols;
+			real off_y = pad_y + delta_y / 2 + (glyphed.geometry.height - size) / 2;
+
+			translate(cr, off_x, off_y);
+			scale(cr, delta_x, delta_y);
+			draw_grid(cr, &glyphed);
+			draw_bounds(cr, &glyphed);
+			draw_glyph(cr, &glyphed);
+		}
+
+		void draw(cairo_t cr, &glyphed_t glyphed) {
+			paint(cr, &glyphed);
+		}
+
+		void print(&glyphed_t glyphed, int indent) {
+			do_indent(indent);
+			printf("glyphed %v\n", glyphed.geometry);
+		}
+
+		void natural(cairo_t cr, &glyphed_t glyphed) {
+			rectangle(cr, 0, 0, 1024, 1024);
+		}
+
+		void outline(cairo_t cr, &glyphed_t glyphed) {
+			rectangle(cr, 0, 0, glyphed.geometry.width, glyphed.geometry.height);
+		}
+
+		*int get_ref(&glyphed_t glyphed, int coord, bool y)
+		{
+			switch (coord) {
+			case lsb_coord:
+				return &glyphed.glyph.metrics.left_side_bearing;
+			case rsb_coord:
+				return &glyphed.glyph.metrics.right_side_bearing;
+			case ascent_coord:
+				return &glyphed.glyph.metrics.ascent;
+			case descent_coord:
+				return &glyphed.glyph.metrics.descent;
+			default:
+				break;
+			}
+			int offset = coord_to_offset(&glyphed, coord);
+			if (y)
+				return &glyphed.glyph.outline[offset + 1];
+			else
+				return &glyphed.glyph.outline[offset];
+		}
+
+		typedef struct {
+			int first;
+			int last;
+		} coord_range_t;
+
+		coord_range_t coord_range(&glyphed_t glyphed) {
+			if (glyphed.start_coord <= glyphed.end_coord)
+				return (coord_range_t) {
+					.first = glyphed.start_coord,
+					.last = glyphed.end_coord
+				};
+			else
+				return (coord_range_t) {
+					.first = glyphed.end_coord,
+					.last = glyphed.start_coord
+				};
+		}
+
+		void step_coord(&glyphed_t glyphed, int step, bool y)
+		{
+			coord_range_t range = coord_range(&glyphed);
+			for (int coord = range.first; coord <= range.last; coord++) {
+				*get_ref(&glyphed, coord, y) += step;
+			}
+		}
+
+		int element_space(int type) {
+			switch (type) {
+			case 'e':
+				return 1;
+			case 'm':
+			case 'l':
+				return 3;
+			case 'c':
+				return 7;
+			case '2':
+				return 5;
+			default:
+				printf("unknown element %d\n", type);
+				return 1;
+			}
+		}
+
+		int coord_space(int type) {
+			switch (type) {
+			case 'e':
+				return 0;
+			case 'm':
+			case 'l':
+				return 1;
+			case 'c':
+				return 3;
+			case '2':
+				return 2;
+			default:
+				printf("unknown element %d\n", type);
+				return 0;
+			}
+		}
+
+		void append(&glyphed_t glyphed, int type) {
+			int this_space = element_space(type);
+			&glyph_t glyph = &glyphed.glyph;
+
+			int spot = glyphed.cur_element;
+			if (spot < 0)
+				spot = 0;
+
+			int prev_type = glyph.outline[spot];
+			int prev_space = element_space(prev_type);
+			int prev_coord = coord_space(prev_type);
+
+			/* insert before 'e' */
+			if (prev_type == 'e')
+				prev_space = 0;
+
+			int x = 0;
+			int y = 0;
+
+			spot += prev_space;
+
+			if (spot >= 3) {
+				x = glyph.outline[spot-2];
+				y = glyph.outline[spot-1];
+			}
+
+			int contents(int i) {
+				if (i < spot)
+					return glyph.outline[i];
+				if (i == spot)
+					return type;
+				if (i < spot + this_space) {
+					int dist = i - (spot + 1);
+					return ((dist & 1) == 0) ? x : y;
+				}
+				return glyph.outline[i-this_space];
+			}
+
+			int[...] new_outline = (int[dim(glyph.outline) + this_space]) { [i] = contents(i) };
+
+			if (glyphed.start_coord < 0)
+				glyphed.start_coord = 0;
+			else
+				glyphed.start_coord += prev_coord;
+			glyphed.end_coord = glyphed.start_coord;
+			glyph.outline = new_outline;
+		}
+
+		/* Return the first coordinate of the element containing 'coord' */
+		int first_coord(&glyphed_t glyphed, int coord)
+		{
+			int[2] offsets = coord_to_offsets(&glyphed, coord);
+			int dist = (offsets[1] - (offsets[0] + 1)) / 2;
+
+			return coord - dist;
+		}
+
+		int[...] delete_element(int[...]outline, int element)
+		{
+			int type = outline[element];
+			if (type == 'e')
+				return outline;
+
+			int space = 0;
+			switch (type) {
+			case 'm':
+			case 'l':
+				space = 3;
+				break;
+			case '2':
+				space = 5;
+				break;
+			case 'c':
+				space = 7;
+				break;
+			}
+
+			if (space > dim(outline))
+				return outline;
+
+			int contents(int i) {
+				if (i < element)
+					return outline[i];
+				return outline[i+space];
+			}
+
+			return (int[dim(outline) - space]) { [i] = contents(i) };
+		}
+
+		int[...] insert_element(int[...] outline, int element, int[...] insert) {
+			int contents(int i) {
+				if (i < element)
+					return outline[i];
+				if (i < element + dim(insert))
+					return insert[i - element];
+				return outline[i - dim(insert)];
+			}
+
+			return (int[dim(outline) + dim(insert)]) { [i] = contents(i) };
+		}
+
+		void delete(&glyphed_t glyphed) {
+			&glyph_t glyph = &glyphed.glyph;
+
+			coord_range_t range = coord_range(&glyphed);
+
+			int coord = range.last;
+			int[...] outline = glyph.outline;
+			while (coord >= range.first)
+			{
+				coord = first_coord(&glyphed, coord);
+				int element = coord_to_element(&glyphed, coord);
+
+				outline = delete_element(outline, element);
+				coord--;
+			}
+			if (outline[0] != 'm')
+				outline = insert_element(outline, 0, (int[3]) { 'm', 0, 0 });
+
+			glyph.outline = outline;
+		}
+
+		void shift(&glyphed_t glyphed, int dx, int dy) {
+			&glyph_t glyph = &glyphed.glyph;
+
+			int cur_offset = 0;
+
+			void shift(int coord) {
+				glyph.outline[cur_offset + 1 + coord * 2] += dx;
+				glyph.outline[cur_offset + 2 + coord * 2] += dy;
+			}
+
+			void shift_offset(int offset)
+			{
+				cur_offset = offset;
+			}
+
+			void shift_move(real x, real y)
+			{
+				shift(0);
+			}
+
+			void shift_line(real x, real y)
+			{
+				shift(0);
+			}
+
+			void shift_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				shift(0);
+				shift(1);
+				shift(2);
+			}
+
+			draw_calls_t shift_calls = {
+				.move = shift_move,
+				.line = shift_line,
+				.curve = shift_curve,
+				.offset = shift_offset,
+			};
+
+			glyph_path(&glyph, &shift_calls);
+		}
+
+		public void scale(&glyphed_t glyphed, real scale_x, real scale_y) {
+			&glyph_t glyph = &glyphed.glyph;
+
+			int cur_offset = 0;
+			int cur_coord = 0;
+
+			void scale(int coord) {
+				if (is_selected(&glyphed, cur_coord, 1)) {
+					glyph.outline[cur_offset + 1 + coord * 2] = floor(glyph.outline[cur_offset + 1 + coord * 2] * scale_x + 0.5);
+					glyph.outline[cur_offset + 2 + coord * 2] = floor(glyph.outline[cur_offset + 2 + coord * 2] * scale_y + 0.5);
+				}
+				cur_coord++;
+			}
+
+			void scale_offset(int offset)
+			{
+				cur_offset = offset;
+			}
+
+			void scale_move(real x, real y)
+			{
+				scale(0);
+			}
+
+			void scale_line(real x, real y)
+			{
+				scale(0);
+			}
+
+			void scale_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				scale(0);
+				scale(1);
+				scale(2);
+			}
+
+			draw_calls_t scale_calls = {
+				.move = scale_move,
+				.line = scale_line,
+				.curve = scale_curve,
+				.offset = scale_offset,
+			};
+
+			glyph_path(&glyph, &scale_calls);
+			Widget::redraw(&glyphed);
+		}
+
+		public paste(&glyphed_t glyphed, &glyph_t new_glyph)
+		{
+			&glyph_t glyph = &glyphed.glyph;
+			int[...] new_outline = {};
+
+			/* skip the 'e' at the end */
+			for (int i = 0; i < dim(glyph.outline) - 1; i++)
+				new_outline[dim(new_outline)] = glyph.outline[i];
+
+			/* append the new bits */
+			for (int i = 0; i < dim(new_glyph.outline); i++)
+				new_outline[dim(new_outline)] = new_glyph.outline[i];
+
+			glyphed.start_coord = max_coord(&glyphed);
+
+			glyph.outline = new_outline;
+			glyphed.end_coord = max_coord(&glyphed);
+
+			if (glyphed.end_coord > glyphed.start_coord)
+				glyphed.start_coord++;
+
+			Widget::redraw(&glyphed);
+		}
+
+		void key(&glyphed_t glyphed, &key_event_t key) {
+			if (key.type != key_type_t.press)
+				return;
+			if (!is_uninit(&glyphed.key_callback))
+				if (glyphed.key_callback(&glyphed, key.key))
+					return;
+			bool redraw = false;
+			switch (key.key) {
+			case "Left":
+				step_coord(&glyphed, -1, false);
+				redraw = true;
+				break;
+			case "Right":
+				step_coord(&glyphed, 1, false);
+				redraw = true;
+				break;
+			case "Up":
+				step_coord(&glyphed, -1, true);
+				redraw = true;
+				break;
+			case "Down":
+				step_coord(&glyphed, 1, true);
+				redraw = true;
+				break;
+			case "plus":
+				glyphed.end_coord = min(glyphed.end_coord + 1, glyphed.max_coord - 1);
+				redraw = true;
+				break;
+			case "equal":
+				glyphed.start_coord++;
+				if (glyphed.start_coord == glyphed.max_coord)
+					glyphed.start_coord = min_coord;
+				glyphed.end_coord = glyphed.start_coord;
+				redraw = true;
+				break;
+			case "underscore":
+				glyphed.end_coord = max(glyphed.end_coord - 1, min_coord);
+				redraw = true;
+				break;
+			case "minus":
+				if (glyphed.start_coord == min_coord)
+					glyphed.start_coord = glyphed.max_coord;
+				glyphed.start_coord--;
+				glyphed.end_coord = glyphed.start_coord;
+				redraw = true;
+				break;
+			case "A":
+				glyphed.start_coord = 0;
+				glyphed.end_coord = glyphed.start_coord;
+				redraw = true;
+			case "a":
+				glyphed.start_coord = 0;
+				glyphed.end_coord = max_coord(&glyphed);
+				redraw = true;
+				break;
+			case "m":
+				append(&glyphed, 'm');
+				redraw = true;
+				break;
+			case "l":
+				append(&glyphed, 'l');
+				redraw = true;
+				break;
+			case "c":
+				append(&glyphed, 'c');
+				redraw = true;
+				break;
+			case "d":
+				delete(&glyphed);
+				redraw = true;
+				break;
+			case "r":
+				scale(&glyphed, -1, 1);
+				redraw = true;
+				break;
+			case "R":
+				scale(&glyphed, 1, -1);
+				redraw = true;
+				break;
+			case "bracketleft":
+				shift(&glyphed, -1, 0);
+				redraw = true;
+				break;
+			case "bracketright":
+				shift(&glyphed, 1, 0);
+				redraw = true;
+				break;
+			case "braceleft":
+				shift(&glyphed, 0, -1);
+				redraw = true;
+				break;
+			case "braceright":
+				shift(&glyphed, 0, 1);
+				redraw = true;
+				break;
+			case "p":
+				print_glyph(stdout, &glyphed.glyph);
+				break;
+			case "Shift_L":
+			case "Shift_R":
+				break;
+			default:
+				printf("unknown key %s\n", key.key);
+				break;
+			}
+			if (redraw)
+				Widget::redraw(&glyphed);
+		}
+
+		void button(&glyphed_t glyphed, &button_event_t event) {
+			if (event.type == button_type_t.press)
+				set_key_focus(&glyphed.nichrome, &glyphed);
+		}
+
+		public void init(&glyphed_t glyphed, &nichrome_t nichrome) {
+			Widget::init(&nichrome, &glyphed);
+
+			glyphed.draw = draw;
+			glyphed.outline = outline;
+			glyphed.natural = natural;
+			glyphed.print = print;
+			glyphed.key = key;
+			glyphed.button = button;
+
+			glyphed.grid = (rgba_color_t) {
+				red = 0, green = 0, blue = 0, alpha = 0.5
+			};
+			glyphed.baseline = (rgba_color_t) {
+				red = 0, green = 0, blue = 0, alpha = 1
+			};
+			glyphed.stroke = (rgba_color_t) {
+				red = 0.5, green = 0, blue = 0, alpha = 1
+			};
+
+			glyphed.highlight = (rgba_color_t) {
+				red = 1, green = 0, blue = 0, alpha = 1
+			};
+			glyphed.spot = (rgba_color_t) {
+				red = 0, green = 0, blue = 0.5, alpha = 1
+			};
+			glyphed.select = (rgba_color_t) {
+				red = 0, green = 0, blue = 1, alpha = 1
+			};
+			glyphed.bounds = (rgba_color_t) {
+				.red = 0, green = 0.3, blue = 0, alpha = 1
+			};
+			glyphed.bounds_high = (rgba_color_t) {
+				.red = 0, green = 1, blue = 0, alpha = 1
+			};
+		}
+
+		public void set_glyph(&glyphed_t glyphed, &glyph_t glyph) {
+			&glyphed.glyph = &glyph;
+			glyphed.start_coord = 0;
+			glyphed.end_coord = glyphed.start_coord;
+			Widget::redraw(&glyphed);
+		}
+
+		public void set_key_callback(&glyphed_t glyphed, key_callback_t key_callback) {
+			glyphed.key_callback = key_callback;
+		}
+
+		public void set_info_callback(&glyphed_t glyphed, info_callback_t info_callback) {
+			glyphed.info_callback = info_callback;
+		}
+
+		public &glyph_t get_glyph(&glyphed_t glyphed) {
+			return &glyphed.glyph;
+		}
+
+		public *widget_t new(&nichrome_t nichrome, &glyph_t glyph, key_callback_t key_callback, info_callback_t info_callback) {
+			&glyphed_t glyphed = &(glyphed_t) {};
+
+			init(&glyphed, &nichrome);
+			set_glyph(&glyphed, &glyph);
+			set_key_callback(&glyphed, key_callback);
+			set_info_callback(&glyphed, info_callback);
+			return &glyphed;
+		}
+	}
+}
+
+import Nichrome;
+
+glyph_t[int] read_font(file f)
+{
+	glyph_t[int] ret = {};
+	while (!File::end(f)) {
+		glyph_t g = read_glyph(f);
+		ret[g.ucs4] = g;
+	}
+	return ret;
+}
+
+void print_font (file f, &glyph_t[int] font)
+{
+	int[...] keys = hash_keys(font);
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = 0; i < dim(keys); i++)
+		print_glyph(f, &font[keys[i]]);
+}
+
+int
+first_ucs4 (&glyph_t[int] font)
+{
+	int[...] keys = hash_keys(font);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	return keys[0];
+}
+
+int
+next_ucs4 (&glyph_t[int] font, int ucs4)
+{
+	int[...] keys = hash_keys(font);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = 0; i < dim(keys); i++)
+		if (keys[i] > ucs4)
+			return keys[i];
+	return keys[dim(keys)-1];
+}
+
+int
+prev_ucs4 (&glyph_t[int] font, int ucs4)
+{
+	int[...] keys = hash_keys(font);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = dim(keys)-1; i >= 0; i--)
+		if (keys[i] < ucs4)
+			return keys[i];
+	return keys[0];
+}
+
+void main () {
+	string initial_filename = "";
+
+	glyph_t[int] font = { sample_glyph.ucs4 => sample_glyph };
+
+	&nichrome_t		nichrome = new ("Glyph Editor", 0, 0);
+
+	if (dim(argv) > 1) {
+		initial_filename = argv[1];
+		twixt(file f = File::open(initial_filename, "r"); File::close(f))
+			font = read_font(f);
+	}
+
+	&widget_t	ucs4name;
+	&widget_t	infotext = Textline::new(&nichrome, 80);
+
+	bool glyphed_key_callback (&widget_t widget, string key) {
+		switch (key) {
+		case "Tab":
+			set_key_focus(&nichrome, &ucs4name);
+			return true;
+		default:
+			break;
+		}
+		return false;
+	}
+
+	void glyphed_info_callback (&widget_t widget, string info) {
+		Textline::set_text(&infotext, info);
+	}
+
+	&Glyphed::glyphed_t	glyphed = Glyphed::new (&nichrome, &font[first_ucs4(&font)], glyphed_key_callback, glyphed_info_callback);
+
+	void exit_callback (&widget_t widget, bool state) {
+		exit(0);
+	}
+
+	&widget_t	filelabel = Label::new(&nichrome, "File:");
+	&widget_t	filename = Textline::new(&nichrome, 32);
+	Textline::set_text(&filename, initial_filename);
+
+	&widget_t	ucs4label = Label::new(&nichrome, "Codepoint:");
+	&ucs4name = Textline::new(&nichrome, 6);
+	Textline::set_text(&ucs4name, sprintf("0x%x", first_ucs4(&font)));
+
+	bool ucs4_callback (&widget_t widget, string key) {
+		&Textline::textline_t textline = &widget;
+		switch (key) {
+		case "Return":
+			int ucs4;
+			if (String::length(textline.text) == 1)
+				ucs4 = textline.text[0];
+			else
+				ucs4 = atoi(textline.text);
+			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
+			if (!hash_test(font, ucs4)) {
+				font[ucs4] = font[first_ucs4(&font)];
+				font[ucs4].ucs4 = ucs4;
+				font[ucs4].outline = (int[...]) { 'e' };
+			}
+			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			return true;
+		case "plus":
+		case "equal":
+			int ucs4 = next_ucs4(&font, atoi(textline.text));
+			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
+			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			return true;
+		case "minus":
+		case "underscore":
+			int ucs4 = prev_ucs4(&font, atoi(textline.text));
+			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
+			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			return true;
+		case "Tab":
+			set_key_focus(&nichrome, &glyphed);
+			return true;
+		}
+		return false;
+	}
+
+	&Textline::textline_t ucs4textline = &ucs4name;
+	ucs4textline.callback = ucs4_callback;
+
+	&widget_t	exit = Button::new (&nichrome, "Exit",
+					    exit_callback);
+
+	void load_callback (&widget_t widget, bool state) {
+		Textline::textline_t textline = filename;
+		twixt(file f = File::open(textline.text, "r"); File::close(f)) {
+			font = read_font(f);
+			Glyphed::set_glyph(&glyphed, &font[first_ucs4(&font)]);
+		}
+	}
+
+	void save_callback (&widget_t widget, bool state) {
+		Textline::textline_t textline = filename;
+		twixt(file f = File::open(textline.text, "w"); File::close(f)) {
+			print_font(f, &font);
+		}
+	}
+
+
+	&widget_t	load = Button::new (&nichrome, "Load",
+					    load_callback);
+	&widget_t	save = Button::new (&nichrome, "Save",
+					    save_callback);
+
+	&widget_t	scalelabel = Label::new(&nichrome, "Scale:");
+	&Textline::textline_t scaletext = Textline::new(&nichrome, 10);
+
+	bool scale_callback(&widget_t widget, string key) {
+		switch (key) {
+		case "Return":
+			real scale;
+			if (File::sscanf(scaletext.text, "%f", &scale) == 1) {
+				if (0.1 <= scale && scale <= 10)
+					Glyphed::scale(&glyphed, scale, scale);
+			} else {
+				printf("sscanf failed\n");
+			}
+			return true;
+		case "Tab":
+			set_key_focus(&nichrome, &glyphed);
+			return true;
+		}
+		return false;
+	}
+	scaletext.callback = scale_callback;
+
+	bool paste_callback (&widget_t widget, string key) {
+		&Textline::textline_t textline = &widget;
+		switch (key) {
+		case "Return":
+			int ucs4;
+			if (String::length(textline.text) == 1)
+				ucs4 = textline.text[0];
+			else
+				ucs4 = atoi(textline.text);
+			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
+			if (hash_test(font, ucs4)) {
+				Glyphed::paste(&glyphed, &font[ucs4]);
+			}
+			return true;
+		case "Tab":
+			set_key_focus(&nichrome, &glyphed);
+			return true;
+		}
+		return false;
+	}
+
+	&widget_t	pastelabel = Label::new(&nichrome, "Paste:");
+	&Textline::textline_t pastetext = Textline::new(&nichrome, 10);
+
+	pastetext.callback = paste_callback;
+
+	&Box::box_t	hbox = Box::new (Box::dir_t.horizontal,
+					 Box::widget_item (&load, 0),
+					 Box::widget_item (&save, 0),
+					 Box::widget_item (&filelabel, 0),
+					 Box::widget_item (&filename, 1),
+					 Box::widget_item (&ucs4label, 0),
+					 Box::widget_item (&ucs4name, 1),
+					 Box::widget_item (&exit, 0));
+
+	&Box::box_t	sbox = Box::new (Box::dir_t.horizontal,
+					 Box::widget_item (&scalelabel, 0),
+					 Box::widget_item (&scaletext, 100, 0),
+					 Box::widget_item (&pastelabel, 0),
+					 Box::widget_item (&pastetext, 100, 0));
+
+	&Box::box_t	vbox = Box::new (Box::dir_t.vertical,
+					 Box::box_item (&hbox),
+					 Box::widget_item(&infotext, 10, 0),
+					 Box::box_item (&sbox),
+					 Box::widget_item(&glyphed, 10));
+
+	set_box (&nichrome, &vbox);
+	set_key_focus(&nichrome, &glyphed);
+	main_loop (&nichrome);
+}
+
+main ();

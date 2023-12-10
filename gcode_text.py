@@ -429,16 +429,41 @@ class Font:
             yield value
 
 
+    def gen_pages(self) -> tuple[int,...]:
+        pages: list[int] = []
+        offset = 0
+        page = -1
+        while offset < len(self.outlines):
+            ucs4 = self.outlines[offset]
+            offset += 1
+            if self.ucs_page(ucs4) != page:
+                page = self.ucs_page(ucs4)
+                pages += [page]
+            stroke = offset + 6 + self.outlines[offset + 4] + self.outlines[offset + 5]
+            while self.outlines[stroke] != 'e':
+                cmd = self.outlines[stroke]
+                if cmd == 'm' or cmd == 'l':
+                    stroke += 3
+                elif cmd == '2':
+                    stroke += 5
+                elif cmd == 'c':
+                    stroke += 7
+                else:
+                    raise ValueError
+            offset = stroke + 1
+        return tuple(pages)
+
     #
     # Re-generate the font glyph offset table
     #
-    def gen_offsets(self) -> tuple[int, ...]:
-        offsets: list[int,...] = 256*[1]
+    def gen_offsets(self, page: int) -> tuple[int, ...]:
+        offsets: list[int] = 256*[1]
         offset = 0
         while offset < len(self.outlines):
             ucs4 = self.outlines[offset]
             offset += 1
-            offsets[ucs4] = offset
+            if self.ucs_page(ucs4) == page:
+                offsets[self.ucs_char_in_page(ucs4)] = offset
             stroke = offset + 6 + self.outlines[offset + 4] + self.outlines[offset + 5]
             while self.outlines[stroke] != 'e':
                 cmd = self.outlines[stroke]
@@ -3213,11 +3238,16 @@ def main():
         output = open(args.output, "w")
 
     if args.dump_offsets:
-        offsets = font.gen_offsets()
-        for start in range(0, len(offsets), 8):
-            for step in range(8):
-                print(" %4d," % offsets[start + step], file=output, end='')
-            print("", file=output)
+        pages = font.gen_pages()
+        for page in pages:
+            print('Charmap(page = 0x%04x,' % page)
+            print('        offsets = (')
+            offsets = font.gen_offsets(page)
+            for start in range(0, len(offsets), 8):
+                for step in range(8):
+                    print(" %4d," % offsets[start + step], file=output, end='')
+                print("", file=output)
+            print('        )),')
         sys.exit(0)
 
     rect_gen = get_rect(args)

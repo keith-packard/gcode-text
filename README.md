@@ -70,6 +70,6 @@ Draw the SVG sample below
 
 Draw all of the characters available:
 
-	$ gcode-text d svg.json -x 0 -y 0 -w 1600 -h 100 -X 0 -Y 120 --border 10 -o charset.svg --settings 1600,2280,4 charset
+	$ gcode-text -d svg.json -x 0 -y 0 -w 1600 -h 100 -X 0 -Y 120 --border 10 -o charset.svg --settings 1600,2280,6 charset
 
 ![charset svg output](https://github.com/keith-packard/gcode-text/raw/main/charset.svg)

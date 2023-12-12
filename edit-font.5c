@@ -270,6 +270,7 @@ extend namespace Nichrome {
 		public typedef widget_t + struct {
 			key_callback_t	key_callback;
 			info_callback_t	info_callback;
+			rgba_color_t	path;
 			rgba_color_t	stroke;
 			rgba_color_t	highlight;
 			rgba_color_t	bounds;
@@ -284,6 +285,7 @@ extend namespace Nichrome {
 			int		max_coord;
 			int		cur_offset;
 			int		cur_element;
+			real		line_width;
 		} glyphed_t;
 
 		const int min_coord = -4;
@@ -452,6 +454,32 @@ extend namespace Nichrome {
 			restore(cr);
 		}
 
+		void draw_char(cairo_t cr, &glyphed_t glyphed)
+		{
+			string s = sprintf("%c", glyphed.glyph.ucs4);
+			twixt(save(cr); restore(cr)) {
+				set_font(cr, "Frutiger LT Std-12");
+				set_source_rgba(cr, 0, 0, 0, 0.15);
+				text_extents_t m = text_extents(cr, s);
+				if (m.width == 0 || m.height == 0)
+					return;
+				real stroke_width = 2.5;
+				real stroke_height = 2.0;
+				&metrics_t metrics = &glyphed.glyph.metrics;
+				if (metrics.right_side_bearing == metrics.left_side_bearing)
+					return;
+				if (metrics.ascent == -metrics.descent)
+					return;
+				real scale_x = (metrics.right_side_bearing - metrics.left_side_bearing) / (m.width - stroke_width);
+				real scale_y = (metrics.ascent + metrics.descent) / (m.height - stroke_height);
+				translate(cr, 0, font_ascent - metrics.ascent);
+				scale(cr, scale_x, scale_y);
+				move_to(cr, -m.x_bearing - stroke_width / 2, -m.y_bearing - stroke_height / 2);
+				show_text(cr, s);
+			}
+
+		}
+
 		void draw_glyph(cairo_t cr, &glyphed_t glyphed)
 		{
 			&glyph_t glyph = &glyphed.glyph;
@@ -563,10 +591,10 @@ extend namespace Nichrome {
 					if (spot(2, x3, y3))
 						chatty = true;
 					if (chatty)
-						info(&glyphed, "curve <%f %f> <%f %f> [%f %f] <%f %f> [%f %f] <%f %f> [%f %f]",
+						info(&glyphed, "curve <%f %f> <%f %f> [%f %f] {%f %f} <%f %f> [%f %f] {%f %f} <%f %f> [%f %f]",
 						     cur_x, cur_y,
-						     x1, y1, x1 - cur_x, y1 - cur_y,
-						     x2, y2, x2 - cur_x, y2 - cur_y,
+						     x1, y1, x1 - cur_x, y1 - cur_y, x1 - x3, y1 - y3,
+						     x2, y2, x2 - cur_x, y2 - cur_y, x2 - x3, y2 - y3,
 						     x3, y3, x3 - cur_x, y3 - cur_y);
 				}
 				cur_x = x3;
@@ -582,16 +610,18 @@ extend namespace Nichrome {
 			};
 
 			save(cr);
-			set_line_width(cr, 0.5);
 			translate(cr, 0, 50);
 			set_line_cap(cr, line_cap_t.ROUND);
 			set_line_join(cr, line_join_t.ROUND);
+
+			set_line_width(cr, glyphed.line_width);
 			set_source_rgba(cr, glyphed.stroke.red, glyphed.stroke.green,
 					glyphed.stroke.blue, glyphed.stroke.alpha);
 			glyph_path(&glyph, &whole_calls);
 			stroke(cr);
+
 			if (has_focus(&glyphed)) {
-				set_line_width(cr, 0.5);
+				set_line_width(cr, glyphed.line_width);
 				set_line_cap(cr, line_cap_t.ROUND);
 				set_line_join(cr, line_join_t.ROUND);
 				cur_coord = 0;
@@ -607,17 +637,23 @@ extend namespace Nichrome {
 				glyphed.cur_element = -1;
 				glyph_path(&glyph, &spot_calls);
 			}
+			set_line_width(cr, 0.1);
+			set_source_rgba(cr, glyphed.path.red, glyphed.path.green,
+					glyphed.path.blue, glyphed.path.alpha);
+			glyph_path(&glyph, &whole_calls);
+			stroke(cr);
 			restore(cr);
 		}
 
 		void draw_grid(cairo_t cr, &glyphed_t glyphed) {
-			set_line_width(cr, 2/rows);
 			for (int col = 0; col < cols; col++) {
 				real alpha = glyphed.grid.alpha;
-				if (col % 5 != 0)
-					alpha = alpha / 2;
+				if (col % 5 == 0)
+					set_line_width(cr, 0.05);
+				else
+					set_line_width(cr, 0.025);
 				set_source_rgba(cr, glyphed.grid.red, glyphed.grid.green,
-						glyphed.grid.blue, alpha);
+						glyphed.grid.blue, glyphed.grid.alpha);
 				move_to(cr, col, -0.5);
 				line_to(cr, col, rows - 0.5);
 				stroke(cr);
@@ -652,9 +688,10 @@ extend namespace Nichrome {
 
 			translate(cr, off_x, off_y);
 			scale(cr, delta_x, delta_y);
-			draw_grid(cr, &glyphed);
 			draw_bounds(cr, &glyphed);
+			draw_char(cr, &glyphed);
 			draw_glyph(cr, &glyphed);
+			draw_grid(cr, &glyphed);
 		}
 
 		void draw(cairo_t cr, &glyphed_t glyphed) {
@@ -871,7 +908,7 @@ extend namespace Nichrome {
 				outline = delete_element(outline, element);
 				coord--;
 			}
-			if (outline[0] != 'm')
+			if (outline[0] != 'm' && outline[0] != 'e')
 				outline = insert_element(outline, 0, (int[3]) { 'm', 0, 0 });
 
 			glyph.outline = outline;
@@ -1113,15 +1150,19 @@ extend namespace Nichrome {
 			glyphed.print = print;
 			glyphed.key = key;
 			glyphed.button = button;
+			glyphed.line_width = 2;
 
 			glyphed.grid = (rgba_color_t) {
-				red = 0, green = 0, blue = 0, alpha = 0.5
+				red = 0.5, green = 0.5, blue = 0.5, alpha = 1,
 			};
 			glyphed.baseline = (rgba_color_t) {
 				red = 0, green = 0, blue = 0, alpha = 1
 			};
+			glyphed.path = (rgba_color_t) {
+				red = 1, green = 1, blue = 1, alpha = 1
+			};
 			glyphed.stroke = (rgba_color_t) {
-				red = 0.5, green = 0, blue = 0, alpha = 1
+				red = 0, green = 0, blue = 0, alpha = 1
 			};
 
 			glyphed.highlight = (rgba_color_t) {

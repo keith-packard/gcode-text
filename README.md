@@ -70,6 +70,25 @@ Draw the SVG sample below
 
 Draw all of the characters available:
 
-	$ gcode-text -d svg.json -x 0 -y 0 -w 1600 -h 100 -X 0 -Y 120 --border 10 -o charset.svg --settings 1600,2280,6 charset
+	$ gcode-text -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,1900,6 charset --font-height --align=left
 
 ![charset svg output](https://github.com/keith-packard/gcode-text/raw/main/charset.svg)
+
+Draw some sample text:
+
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-height --align=left -o lorum-roman.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-roman.svg)
+ 
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-height --align=left --oblique -o lorum-oblique.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-oblique.svg)
+
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-height --align=left -o lorum-bold.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold.svg)
+ 
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-height --align=left --oblique -o lorum-bold-oblique.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold-oblique.svg)
+ 

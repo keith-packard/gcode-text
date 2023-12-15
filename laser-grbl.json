@@ -1,7 +1,7 @@
 {
     "start" : "G90\nG17\nG49\n",
-    "settings" : "M08\nM04 S%s\n",
-    "setting-values": ["500"],
+    "settings" : "M08\nM03 S%s\n",
+    "setting-values": ["1000"],
     "inch" : "G20\n",
     "mm" : "G10\n",
     "move" : "G00 X%f Y%f\n",

@@ -3393,7 +3393,6 @@ outlines = (
     'e',
 )
 
-
 charmap = (
 Charmap(page = 0x0000,
         offsets = (
@@ -3514,11 +3513,53 @@ font = Font(
     )
 
 
-def config_open(name: str, args):
+class Values:
+
+    def __init__(self):
+        self.inch = True
+        self.mm = False
+        self.rect = False
+        self.tesselate = False
+        self.oblique = False
+        self.sheer = 0.1
+        self.flatness = 0.001
+        self.speed = 100
+        self.template = None
+        self.device = None
+        self.settings = None
+        self.border = 0
+        self.start_x = None
+        self.start_y = None
+        self.width = 4
+        self.height = 1
+        self.delta_x = 4
+        self.delta_y = 1
+        self.columns = 1
+        self.value = None
+        self.number = 1
+        self.text = None
+        self.align = 'center'
+        self.font_height = False
+        self.config_dir = '@SHARE_DIR@'
+        self.rects = None
+        self.file = None
+        pass
+
+    def handle_dict(self, d):
+        values_vars = vars(self)
+        for var in values_vars:
+            if var in d and d[var] is not None:
+                values_vars[var] = d[var]
+            
+    def handle_args(self, args):
+        self.handle_dict(vars(args))
+
+
+def config_open(name: str, values):
     try:
         return open(name)
     except FileNotFoundError:
-        return open(os.path.join(args.config_dir, name))
+        return open(os.path.join(values.config_dir, name))
 
 
 class Device:
@@ -3533,10 +3574,11 @@ class Device:
     draw: str = "G01 X%f Y%f F%f\n"
     curve: str = ""
     stop: str = "M30\n"
+    values: Values = None
 
-    def __init__(self, json: str = ""):
-        if json != "":
-            self.set_json(json)
+    def __init__(self, values: Values):
+        if values.device:
+            self.set_json_file(values.device, values)
 
     def bool(self, value):
         if value == "true":
@@ -3574,30 +3616,32 @@ class Device:
         self.set_values(json.loads(str))
 
     def set_settings(self, settings: str):
-        f = StringIO(settings)
-        reader = csv.reader(f, delimiter=',')
-        setting_values = []
-        for row in reader:
-            setting_values = row
-        for i in range(min(len(setting_values), len(self.setting_values))):
-            self.setting_values[i] = setting_values[i]
+        if isinstance(settings, list):
+            self.setting_values = settings
+        else:
+            f = StringIO(settings)
+            reader = csv.reader(f, delimiter=',')
+            setting_values = []
+            for row in reader:
+                setting_values = row
+            for i in range(min(len(setting_values), len(self.setting_values))):
+                self.setting_values[i] = setting_values[i]
 
-    def set_json_file(self, json_file: str, args):
-        with config_open(json_file, args) as file:
+    def set_json_file(self, json_file: str, values):
+        with config_open(json_file, values) as file:
             self.set_values(json.load(file))
 
 
 class GCode(Draw):
     f: Any
     device: Device
-    args: Any
 
-    def __init__(self, f: Any, device: Device, args):
+    def __init__(self, f: Any, device: Device, values: Values):
         self.f = f
         self.device = device
-        self.args = args
-        if args.settings != None:
-            device.set_settings(args.settings)
+        self.values = values
+        if values.settings != None:
+            device.set_settings(values.settings)
 
     def start(self):
         print("%s" % self.device.start, file=self.f, end="")
@@ -3605,7 +3649,7 @@ class GCode(Draw):
             print(
                 self.device.settings % tuple(self.device.setting_values), file=self.f, end=""
             )
-        if self.args.mm:
+        if self.values.mm:
             print("%s" % self.device.mm, file=self.f, end="")
         else:
             print("%s" % self.device.inch, file=self.f, end="")
@@ -3616,7 +3660,7 @@ class GCode(Draw):
 
     def draw(self, x: float, y: float):
         if self.device.speed:
-            s = self.device.draw % (x, y, self.args.speed)
+            s = self.device.draw % (x, y, self.values.speed)
         else:
             s = self.device.draw % (x, y)
         print(s, file=self.f, end="")
@@ -3624,7 +3668,7 @@ class GCode(Draw):
 
     def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float):
         if self.device.speed:
-            s = self.device.curve % (x1, y1, x2, y2, x3, y3, self.args.speed)
+            s = self.device.curve % (x1, y1, x2, y2, x3, y3, self.values.speed)
         else:
             s = self.device.curve % (x1, y1, x2, y2, x3, y3)
         print(s, file=self.f, end="")
@@ -3634,8 +3678,8 @@ class GCode(Draw):
         print("%s" % self.device.stop, file=self.f, end="")
 
     def get_draw(self):
-        if self.device.curve == "" or self.args.tesselate:
-            return LineDraw(self, self.args.flatness)
+        if self.device.curve == "" or self.values.tesselate:
+            return LineDraw(self, self.values.flatness)
         return self
 
     def text_path(self, m: Matrix, s: str):
@@ -3643,41 +3687,72 @@ class GCode(Draw):
         font.text_path(s, draw)
 
     def text_into_rect(self, r: Rect, s: str):
-        if self.args.rect:
+        if self.values.rect:
             self.rect(r)
 
-        rect_width = r.bottom_right.x - r.top_left.x - self.args.border * 2
-        rect_height = r.bottom_right.y - r.top_left.y - self.args.border * 2
+        rect_width = r.bottom_right.x - r.top_left.x - self.values.border * 2
+        rect_height = r.bottom_right.y - r.top_left.y - self.values.border * 2
+
+        if rect_width < 0:
+            print("border %f too wide for rectangle %s" % (self.values.border, r))
+            return
+        if rect_height < 0:
+            print("border %f too tall for rectangle %s" % (self.values.border, r))
+            return
 
         metrics = font.text_metrics(s)
 
         text_width = metrics.right_side_bearing - metrics.left_side_bearing
-        text_height = metrics.ascent + metrics.descent
+        if self.values.font_height:
+            ascent = metrics.font_ascent
+            descent = metrics.font_descent
+        else:
+            ascent = metrics.ascent
+            descent = metrics.descent
 
-        if self.args.oblique:
-            text_width += text_height * self.args.sheer
+        text_height = ascent + descent
+
+        if text_width == 0 or text_height == 0:
+            print("Text is empty")
+            return
+
+        if self.values.oblique:
+            text_width += text_height * self.values.sheer
 
         if text_width / text_height > rect_width / rect_height:
             scale = rect_width / text_width
         else:
             scale = rect_height / text_height
 
-        text_off_x = (rect_width - text_width * scale) / 2
         text_off_y = (rect_height - text_height * scale) / 2
+
+        if self.values.align == 'left':
+            text_off_x = 0
+        elif self.values.align == 'center':
+            text_off_x = (rect_width - text_width * scale) / 2
+        else:
+            text_off_x = text_width
+
+        text_x = text_off_x + r.top_left.x + self.values.border
+        text_y = text_off_y + r.top_left.y + self.values.border
+        text_x_span = text_width * scale
+        text_y_span = text_height * scale
+
+        print('%f,%f - %f,%f "%s"' % (text_x, text_y, text_x_span, text_y_span, s))
 
         matrix = Matrix()
         matrix = matrix.translate(
-            text_off_x + r.top_left.x + self.args.border,
-            text_off_y + r.top_left.y + self.args.border,
+            text_off_x + r.top_left.x + self.values.border,
+            text_off_y + r.top_left.y + self.values.border,
         )
-        if self.args.oblique:
-            matrix = matrix.sheer(-self.args.sheer, 0)
+        if self.values.oblique:
+            matrix = matrix.sheer(-self.values.sheer, 0)
 
         matrix = matrix.scale(scale, scale)
         if self.device.y_invert:
             matrix = matrix.scale(1, -1)
         else:
-            matrix = matrix.translate(0, metrics.ascent)
+            matrix = matrix.translate(0, ascent)
 
         self.text_path(matrix, s)
 
@@ -3692,79 +3767,71 @@ def Args():
     parser.add_argument('-V', '--version', action='store_true',
                         help='Print version and exit')
     parser.add_argument('-i', '--inch', action='store_true',
-                        help='Use inch units')
+                        help='Use inch units',
+                        default=None)
     parser.add_argument('-m', '--mm', action='store_true',
-                        help='Use millimeter units')
+                        help='Use millimeter units',
+                        default=None)
     parser.add_argument('-r', '--rect', action='store_true',
-                        help='Draw bounding rectangles')
+                        help='Draw bounding rectangles',
+                        default=None)
     parser.add_argument('-O', '--oblique', action='store_true',
-                        help='Draw the glyphs using a sheer transform')
+                        help='Draw the glyphs using a sheer transform',
+                        default=None)
     parser.add_argument('--tesselate', action='store_true',
-                        help='Force tesselation of splines')
+                        help='Force tesselation of splines',
+                        default=None)
     parser.add_argument('--dump-offsets', action='store_true',
                         help='Dump glyph offsets to update font')
     parser.add_argument('--sheer', action='store', type=float,
-                        help='Oblique sheer amount',
-                        default=0.1)
+                        help='Oblique sheer amount')
     parser.add_argument('-f', '--flatness', action='store', type=float,
-                        help='Spline decomposition tolerance',
-                        default=0.001)
+                        help='Spline decomposition tolerance')
     parser.add_argument('-s', '--speed', action='store', type=float,
-                        help='Feed rate',
-                        default=100)
+                        help='Feed rate')
     parser.add_argument('-t', '--template', action='store',
                         help='Template file name',
                         default=None)
     parser.add_argument('-d', '--device', action='store',
-                        help='Device config file',
-                        default='')
+                        help='Device config file')
     parser.add_argument('-S', '--settings', action='store',
-                        help='Device-specific settings values',
-                        default='')
+                        help='Device-specific settings values')
     parser.add_argument('-o', '--output', action='store',
                         help='Output file name',
                         default='-')
     parser.add_argument('-b', '--border', action='store', type=float,
-                        help='Border width',
-                        default=0.1)
+                        help='Border width')
     parser.add_argument('-x', '--start-x', action='store', type=float,
-                        help='Starting X for boxes',
-                        default=0)
+                        help='Starting X for boxes')
     parser.add_argument('-y', '--start-y', action='store', type=float,
-                        help='Starting Y for boxes',
-                        default=0)
+                        help='Starting Y for boxes')
     parser.add_argument('-w', '--width', action='store', type=float,
-                        help='Box width',
-                        default=4)
+                        help='Box width')
     parser.add_argument('-h', '--height', action='store', type=float,
-                        help='Box height',
-                        default=1)
+                        help='Box height')
     parser.add_argument('-X', '--delta-x', action='store', type=float,
-                        help='X offset between boxes',
-                        default=4)
+                        help='X offset between boxes')
     parser.add_argument('-Y', '--delta-y', action='store', type=float,
-                        help='Y offset between boxes',
-                        default=1)
+                        help='Y offset between boxes')
     parser.add_argument('-c', '--columns', action='store', type=int,
-                        help='Number of columns of boxes',
-                        default=1)
+                        help='Number of columns of boxes')
     parser.add_argument('-v', '--value', action='store', type=float,
-                        default=None,
                         help='Initial text numeric value')
     parser.add_argument('-n', '--number', action='store', type=float,
-                        default=1,
                         help='Number of numeric values')
     parser.add_argument('-T', '--text', action='store',
                         help='Text string')
+    parser.add_argument('-a', '--align', action='store', type=str,
+                        choices=['left', 'right', 'center'],
+                        default=None)
+    parser.add_argument('--font-height', action='store_true',
+                        help='Use font height for strings instead of glyph heights',
+                        default=None)
     parser.add_argument('-C', '--config-dir', action='store',
-                        default='@SHARE_DIR@',
                         help='Directory containing device configuration files')
     parser.add_argument('file', nargs='*',
                         help='Text source files')
     args = parser.parse_args()
-
-    for f in args.file:
-        print("file: %s" % f)
 
     if args.help:
         parser.print_help()
@@ -3781,62 +3848,73 @@ def finite_rects(args):
     return args.template is not None
 
 
-def validate_template(template):
-    if not isinstance(template, list):
-        print('template is not an array', file=sys.stderr)
-        return False
-    for e in tuple(template):
+def load_template(template_file, values):
+
+    with config_open(template_file, values) as file:
+        template = json.load(file)
+    if isinstance(template, list):
+        value.rects = template
+    elif isinstance(template, dict):
+        values.handle_dict(template)
+
+    if not isinstance(values.rects, list):
+        print('template rects is not an array', file=sys.stderr)
+        raise TypeError
+    for e in tuple(values.rects):
         if not isinstance(e, list):
-            print('template element %s is not an array' % (e,), file=sys.stderr)
-            return False
+            print('rects element %s is not an array' % (e,), file=sys.stderr)
+            raise TypeError
         if len(e) != 4:
-            print('template element %s does not contain four values' % (e,), file=sys.stderr)
-            return False
+            print('rects element %s does not contain four values' % (e,), file=sys.stderr)
+            raise TypeError
         for v in tuple(e):
             if not isinstance(v, numbers.Number):
-                print('template value %r is not a number' % (v,), file=sys.stderr)
-                return False
-    return True
-
-def get_rect(args):
-    if args.template is not None:
-        with config_open(args.template, args) as file:
-            rects = json.load(file)
-            if not validate_template(rects):
+                print('rects value %r is not a number' % (v,), file=sys.stderr)
                 raise TypeError
-        for r in rects:
+
+def get_rect(values):
+    if values.rects is not None:
+        for r in values.rects:
             yield Rect(Point(r[0], r[1]), Point(r[0] + r[2], r[1] + r[3]))
     else:
-        y = args.start_y
+        y = values.start_y
         while True:
-            x = args.start_x
-            for c in range(args.columns):
-                yield Rect(Point(x, y), Point(x+args.width, y+args.height))
-                x += args.delta_x
-            y += args.delta_y
+            x = values.start_x
+            for c in range(values.columns):
+                yield Rect(Point(x, y), Point(x+values.width, y+values.height))
+                x += values.delta_x
+            y += values.delta_y
     
 
-def get_line(args):
-    if args.value != None:
-        v = args.value
-        n = args.number
-        while finite_rects(args) or n > 0:
+def get_line(values):
+    if values.value != None:
+        v = values.value
+        n = values.number
+        while finite_rects(values) or n > 0:
             yield "%d" % v
             n -= 1
             v += 1
-    if args.text != None:
-        for l in args.text.splitlines():
+    if values.text != None:
+        for l in values.text.splitlines():
             yield l
-    for name in args.file:
+    for name in values.file:
         with open(name, "r", encoding='utf-8', errors='ignore') as f:
             for l in f.readlines():
                 yield l.strip()
 
 def main():
+    values = Values()
     args = Args()
-    device = Device()
-    if args.device:
-        device.set_json_file(args.device, args)
+
+    if args.config_dir:
+        values.config_dir = args.config_dir
+
+    if args.template:
+        load_template(args.template, values)
+
+    values.handle_args(args)
+
+    device = Device(values)
 
     output = sys.stdout
     if args.output != '-':
@@ -3855,17 +3933,16 @@ def main():
             print('        )),')
         sys.exit(0)
 
-    rect_gen = get_rect(args)
-    line_gen = get_line(args)
+    rect_gen = get_rect(values)
+    line_gen = get_line(values)
 
-    gcode = GCode(output, device, args)
+    gcode = GCode(output, device, values)
     gcode.start()
 
     while True:
         try:
             rect = next(rect_gen)
             line = next(line_gen)
-            print('%s "%s"' % (rect, line))
             gcode.text_into_rect(rect, line)
         except StopIteration:
             break

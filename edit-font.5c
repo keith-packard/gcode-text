@@ -1236,6 +1236,138 @@ void print_font (file f, &glyph_t[int] font)
 		print_glyph(f, &font[keys[i]]);
 }
 
+string[] svg_header = {
+"<?xml version=\"1.0\" encoding=\"UTF-8\" ?>",
+"<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\" >",
+"",
+"<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.1\">",
+"",
+"<metadata>",
+"Font name:       Twin Sans",
+"License:         SIL Open Font License http://scripts.sil.org/OFL",
+"Created by:      Keith Packard",
+"A derivative of: Hershey Sans",
+"",
+"Prepared in 2023 and converted to SVG fonts",
+"in 2023 by Keith Packard, www.keithp.com",
+"</metadata>",
+"<defs>",
+"<font id=\"TwinSans\" horiz-adv-x=\"12\" >",
+"<font-face",
+"font-family=\"Twin Sans\"",
+"units-per-em=\"1000\"",
+"ascent=\"781.25\"",
+"descent=\"218.75\"",
+"cap-height=\"656.25\"",
+"x-height=\"437.5\"",
+"/>",
+"<missing-glyph horiz-adv-x=\"187.5\" />",
+};
+
+
+string[] svg_footer = {
+	"</font>",
+	"</defs>",
+	"</svg>"
+};
+
+void print_glyph_svg (file f, &glyph_t glyph)
+{
+	string charname;
+	&metrics_t metrics = &glyph.metrics;
+
+	switch (glyph.ucs4) {
+	case 0:
+		return;
+	case '&':
+		charname = "&amp;";
+		break;
+	case '\'':
+		charname = "&apos;";
+		break;
+	case '"':
+	case '<':
+	case '>':
+		charname = sprintf("&#%d;", glyph.ucs4);
+		break;
+	default:
+		if (' ' <= glyph.ucs4 && glyph.ucs4 <= '~')
+			charname = sprintf("%c", glyph.ucs4);
+		else
+			charname = sprintf("&#%d;", glyph.ucs4);
+		break;
+	}
+	File::fprintf(f, "<glyph unicode=\"%s\"", charname);
+	File::fprintf(f, " horiz-adv-x=\"%f\"", (metrics.right_side_bearing + 12) * 1000 / 64);
+
+	const int font_ascent = 50;
+
+	bool first = true;
+
+	void svg_coord(real x, real y)
+	{
+		File::fprintf(f, "%f,%f", x * 1000 / 64, (-y) * 1000 / 64);
+	}
+
+	void svg_cmd(string cmd)
+	{
+		if (first)
+			File::fprintf(f, " d=\"");
+		File::fprintf(f, "%s", cmd);
+		first = false;
+	}
+
+	void svg_move (real x, real y)
+	{
+		svg_cmd("M");
+		svg_coord(x, y);
+	}
+
+	void svg_line (real x, real y)
+	{
+		svg_cmd("L");
+		svg_coord(x, y);
+	}
+
+	void svg_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+	{
+		svg_cmd("C");
+		svg_coord(x1, y1);
+		File::fprintf(f, ",");
+		svg_coord(x2, y2);
+		File::fprintf(f, ",");
+		svg_coord(x3, y3);
+	}
+
+	draw_calls_t svg_calls = {
+		.move = svg_move,
+		.line = svg_line,
+		.curve = svg_curve,
+	};
+
+	glyph_path(&glyph, &svg_calls);
+	if (!first)
+		File::fprintf(f, "\"");
+	File::fprintf(f, "/>\n");
+}
+
+void print_font_svg (file f, &glyph_t[int] font)
+{
+	for (int i = 0; i < dim(svg_header); i++) {
+		File::fprintf(f, "%s\n", svg_header[i]);
+	}
+	int[...] keys = hash_keys(font);
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = 0; i < dim(keys); i++)
+		print_glyph_svg(f, &font[keys[i]]);
+	for (int i = 0; i < dim(svg_footer); i++) {
+		File::fprintf(f, "%s\n", svg_footer[i]);
+	}
+}
+
 int
 first_ucs4 (&glyph_t[int] font)
 {
@@ -1325,8 +1457,20 @@ void main () {
 	&widget_t	filename = Textline::new(&nichrome, 32);
 	Textline::set_text(&filename, initial_filename);
 
+	&widget_t	svgname = Textline::new(&nichrome, 32);
+
+	void svg_callback (&widget_t widget, bool state) {
+		Textline::textline_t svgline = svgname;
+		Textline::textline_t textline = svgname;
+		twixt(file f = File::open(textline.text, "w"); File::close(f)) {
+			print_font_svg(f, &font);
+		}
+	}
+
+	&widget_t	svgbutton = Button::new(&nichrome, "SVG Save:", svg_callback);
+
 	&widget_t	ucs4label = Label::new(&nichrome, "Codepoint:");
-	&ucs4name = Textline::new(&nichrome, 6);
+	&ucs4name = Textline::new(&nichrome, 12);
 	Textline::set_text(&ucs4name, sprintf("0x%x", first_ucs4(&font)));
 
 	bool ucs4_callback (&widget_t widget, string key) {
@@ -1453,7 +1597,9 @@ void main () {
 					 Box::widget_item (&scalelabel, 0),
 					 Box::widget_item (&scaletext, 100, 0),
 					 Box::widget_item (&pastelabel, 0),
-					 Box::widget_item (&pastetext, 100, 0));
+					 Box::widget_item (&pastetext, 100, 0),
+					 Box::widget_item (&svgbutton, 0, 0),
+					 Box::widget_item (&svgname, 100, 0));
 
 	&Box::box_t	vbox = Box::new (Box::dir_t.vertical,
 					 Box::box_item (&hbox),

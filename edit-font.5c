@@ -692,6 +692,8 @@ extend namespace Nichrome {
 			draw_char(cr, &glyphed);
 			draw_glyph(cr, &glyphed);
 			draw_grid(cr, &glyphed);
+			move_to(cr, -100, -100);
+			line_to(cr, -90, -90);
 		}
 
 		void draw(cairo_t cr, &glyphed_t glyphed) {
@@ -844,6 +846,9 @@ extend namespace Nichrome {
 		int first_coord(&glyphed_t glyphed, int coord)
 		{
 			int[2] offsets = coord_to_offsets(&glyphed, coord);
+			if (offsets[0] == -1)
+				return -1;
+
 			int dist = (offsets[1] - (offsets[0] + 1)) / 2;
 
 			return coord - dist;
@@ -903,6 +908,8 @@ extend namespace Nichrome {
 			while (coord >= range.first)
 			{
 				coord = first_coord(&glyphed, coord);
+				if (coord == -1)
+					break;
 				int element = coord_to_element(&glyphed, coord);
 
 				outline = delete_element(outline, element);
@@ -1277,6 +1284,39 @@ svg_value(real value)
 	return value * svg_em / 64;
 }
 
+bool svg_names_loaded = false;
+
+string[int] svg_names = {};
+
+string
+svg_name(int ucs4)
+{
+	if (hash_test(svg_names, ucs4))
+		return svg_names[ucs4];
+	return sprintf("Unknown glyph 0x%x", ucs4);
+}
+
+void
+load_svg_names(string filename)
+{
+	if (svg_names_loaded)
+		return;
+	svg_names_loaded = true;
+
+	twixt(file f = File::open(filename, "r"); File::close(f)) {
+		while (!File::end(f)) {
+			string line = File::fgets(f);
+			if (line[0] == '#')
+				continue;
+			string[*] words = String::wordsplit(String::chump(line), ";");
+			if (dim(words) == 2) {
+				int ucs4 = string_to_integer(words[1], 16);
+				svg_names[ucs4] = words[0];
+			}
+		}
+	}
+}
+
 void print_glyph_svg (file f, &glyph_t glyph)
 {
 	string charname;
@@ -1294,16 +1334,18 @@ void print_glyph_svg (file f, &glyph_t glyph)
 	case '"':
 	case '<':
 	case '>':
-		charname = sprintf("&#%d;", glyph.ucs4);
+		charname = sprintf("&#x%x;", glyph.ucs4);
 		break;
 	default:
 		if (' ' <= glyph.ucs4 && glyph.ucs4 <= '~')
 			charname = sprintf("%c", glyph.ucs4);
 		else
-			charname = sprintf("&#%d;", glyph.ucs4);
+			charname = sprintf("&#x%x;", glyph.ucs4);
 		break;
 	}
 	File::fprintf(f, "<glyph unicode=\"%s\"", charname);
+	if (hash_test(svg_names, glyph.ucs4))
+		File::fprintf(f, " glyph-name=\"%s\"", svg_names[glyph.ucs4]);
 	File::fprintf(f, " horiz-adv-x=\"%f\"", svg_value(metrics.right_side_bearing + 12));
 
 	const int font_ascent = 50;
@@ -1359,6 +1401,8 @@ void print_glyph_svg (file f, &glyph_t glyph)
 
 void print_font_svg (file f, &glyph_t[int] font)
 {
+	load_svg_names("../agl-aglfn/glyphlist.txt");
+
 	for (int i = 0; i < dim(svg_header); i++) {
 		File::fprintf(f, "%s\n", svg_header[i]);
 	}

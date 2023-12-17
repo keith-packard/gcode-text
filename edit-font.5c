@@ -28,6 +28,7 @@ autoload Sort;
 typedef struct {
 	int	left_side_bearing;
 	int	right_side_bearing;
+	int	width;
 	int	ascent;
 	int	descent;
 } metrics_t;
@@ -44,7 +45,8 @@ glyph_t sample_glyph = {
 	.ucs4 = 0xae,
 	.metrics = {
 		.left_side_bearing = 0,
-		right_side_bearing = 30,
+		.right_side_bearing = 30,
+		.width = 42,
 		.ascent = 34,
 		.descent = 0,
 	},
@@ -75,7 +77,96 @@ typedef struct {
 	void(real x, real y) line;
 	void(real x1, real y1, real x2, real y2, real x3, real y3) curve;
 	void(int offset) offset;
+	real flatness;
 } draw_calls_t;
+
+typedef struct {
+	real	x, y;
+} spoint_t;
+
+typedef struct {
+	spoint_t    a, b, c, d;
+} spline_t;
+
+typedef struct {
+	spoint_t	top_left;
+	spoint_t	bottom_right;
+} rect_t;
+
+bool
+rect_is_empty(*rect_t r)
+{
+	return r->top_left.x >= r->bottom_right.x || r->top_left.y >= r->bottom_right.y;
+}
+
+/* Interpolate splines to lines until we hit the desired flatness */
+void
+_lerp_half (*spoint_t a, *spoint_t b, *spoint_t result)
+{
+	result->x = a->x + ((b->x - a->x) / 2);
+	result->y = a->y + ((b->y - a->y) / 2);
+}
+
+void
+de_casteljau (*spline_t spline, *spline_t s1, *spline_t s2)
+{
+	spoint_t ab, bc, cd;
+	spoint_t abbc, bccd;
+	spoint_t final;
+
+	_lerp_half (&spline->a, &spline->b, &ab);
+	_lerp_half (&spline->b, &spline->c, &bc);
+	_lerp_half (&spline->c, &spline->d, &cd);
+	_lerp_half (&ab, &bc, &abbc);
+	_lerp_half (&bc, &cd, &bccd);
+	_lerp_half (&abbc, &bccd, &final);
+
+	s1->a = spline->a;
+	s1->b = ab;
+	s1->c = abbc;
+	s1->d = final;
+
+	s2->a = final;
+	s2->b = bccd;
+	s2->c = cd;
+	s2->d = spline->d;
+}
+
+/*
+ * Return an upper bound on the error (squared * 16) that could
+ * from approximating a spline as a line segment
+ * the two endpoints
+ *
+ * From https://hcklbrrfnn.files.wordpress.com/2012/08/bez.pdf
+ */
+real error_squared(*spline_t spline)
+{
+	real ux = 3 * spline->b.x - 2 * spline->a.x - spline->d.x;
+	real uy = 3 * spline->b.y - 2 * spline->a.y - spline->d.y;
+        real vx = 3 * spline->c.x - 2 * spline->d.x - spline->a.x;
+	real vy = 3 * spline->c.y - 2 * spline->d.y - spline->a.y;
+
+	ux *= ux;
+	uy *= uy;
+	vx *= vx;
+	vy *= vy;
+	if (ux < vx)
+		ux = vx;
+	if (uy < vy)
+		uy = vy;
+	return ux + uy;
+}
+
+spline_t[...] decompose(*spline_t spline, real tolerance)
+{
+        if (error_squared(spline) <= 16 * tolerance * tolerance)
+		return (spline_t[...]) { *spline };
+	spline_t s1, s2;
+	de_casteljau(spline, &s1, &s2);
+	spline_t[...] s1a = decompose(&s1, tolerance);
+	spline_t[...] s2a = decompose(&s2, tolerance);
+	return (spline_t[dim(s1a) + dim(s2a)]) { [i] = i < dim(s1a) ? s1a[i] : s2a[i - dim(s1a)] };
+}
 
 /*
  * Draw a glyph using the provide callbacks.
@@ -138,6 +229,71 @@ glyph_path(&glyph_t glyph, &draw_calls_t calls)
 	}
 }
 
+public metrics_t measure_ink(&glyph_t glyph)
+{
+	real min_x = 1e50;
+	real max_x = -1e50;
+	real min_y = 1e50;
+	real max_y = -1e50;
+
+	real cur_x, cur_y;
+
+	void bounds(real x, real y)
+	{
+		min_x = min(x, min_x);
+		min_y = min(y, min_y);
+		max_x = max(x, max_x);
+		max_y = max(y, max_y);
+		cur_x = x;
+		cur_y = y;
+	}
+
+	void ink_move(real x, real y)
+	{
+		bounds(x, y);
+	}
+
+	void ink_line(real x, real y)
+	{
+		bounds(x, y);
+	}
+
+	void ink_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+	{
+		spline_t s = {
+			.a = { .x = cur_x, .y = cur_y },
+			.b = { .x = x1, .y = y1 },
+			.c = { .x = x2, .y = y2 },
+			.d = { .x = x3, .y = y3 }
+		};
+		spline_t[...] d = decompose(&s, 0.0001);
+		for (int i = 0; i < dim(d); i++)
+			ink_line(d[i].d.x, d[i].d.y);
+	}
+
+	draw_calls_t ink_calls = {
+		.move = ink_move,
+		.line = ink_line,
+		.curve = ink_curve,
+	};
+
+	glyph_path(&glyph, &ink_calls);
+
+	if (min_x > max_x) {
+		min_x = max_x = 4;
+	}
+	if (min_y > max_y) {
+		max_y = min_y = 0;
+	}
+	return (metrics_t) {
+		.left_side_bearing = floor(min_x),
+		.right_side_bearing = ceil(max_x),
+		.width = glyph.metrics.width,
+		.ascent = -floor(min_y),
+		.descent = ceil(max_y)
+	};
+}
+
 void print_outline(file f, &int[...] outline)
 {
 	int offset = 0;
@@ -173,13 +329,14 @@ void print_glyph(file f, &glyph_t glyph)
 {
 	&metrics_t metrics = &glyph.metrics;
 	File::fprintf(f, "   0x%02x, # '%c'\n", glyph.ucs4, glyph.ucs4);
-	File::fprintf(f, "    %d, %d, %d, %d, %d, %d,\n",
-	       metrics.left_side_bearing,
-	       metrics.right_side_bearing,
-	       metrics.ascent,
-	       metrics.descent,
-	       dim(glyph.snap_x),
-	       dim(glyph.snap_y));
+	File::fprintf(f, "    %d, %d, %d, %d, %d, %d, %d,\n",
+		      metrics.left_side_bearing,
+		      metrics.right_side_bearing,
+		      metrics.width,
+		      metrics.ascent,
+		      metrics.descent,
+		      dim(glyph.snap_x),
+		      dim(glyph.snap_y));
 	File::fprintf(f, "   ");
 	for (int i = 0; i < dim(glyph.snap_x); i++)
 		File::fprintf(f, " %d,", glyph.snap_x[i]);
@@ -218,15 +375,20 @@ glyph_t read_glyph(file f)
 	string metrics_line = File::fgets(f);
 	int[...] metrics_bits = parse_line(metrics_line);
 
+	bool has_width = (dim(metrics_bits) == 7);
+
+	int after_width = has_width ? 1 : 0;
+
 	metrics_t metrics = (metrics_t) {
 		.left_side_bearing = metrics_bits[0],
 		.right_side_bearing = metrics_bits[1],
-		.ascent = metrics_bits[2],
-		.descent = metrics_bits[3],
+		.width = has_width ? metrics_bits[2] : metrics_bits[1] + 12,
+		.ascent = metrics_bits[2 + after_width],
+		.descent = metrics_bits[3 + after_width],
 	};
 
-	int n_snap_x = metrics_bits[4];
-	int n_snap_y = metrics_bits[5];
+	int n_snap_x = metrics_bits[4 + after_width];
+	int n_snap_y = metrics_bits[5 + after_width];
 
 	string snap_x_line = File::fgets(f);
 	int[...] snap_x = parse_line(snap_x_line);
@@ -254,6 +416,12 @@ glyph_t read_glyph(file f)
 		.outline = outline
 	};
 }
+
+real font_ascent = 50;
+real font_descent = 14;
+real x_height = 28;
+real cap_height = 42;
+real missing_glyph = 32;
 
 extend namespace Nichrome {
 	public namespace Glyphed {
@@ -288,9 +456,10 @@ extend namespace Nichrome {
 			real		line_width;
 		} glyphed_t;
 
-		const int min_coord = -4;
-		const int lsb_coord = -4;
-		const int rsb_coord = -3;
+		const int min_coord = -5;
+		const int lsb_coord = -5;
+		const int rsb_coord = -4;
+		const int width_coord = -3;
 		const int ascent_coord = -2;
 		const int descent_coord = -1;
 
@@ -312,6 +481,8 @@ extend namespace Nichrome {
 				return sprintf("left side bearing <%f>", metrics.left_side_bearing);
 			case rsb_coord:
 				return sprintf("right side bearing <%f>", metrics.right_side_bearing);
+			case width_coord:
+				return sprintf("width <%f>", metrics.width);
 			case ascent_coord:
 				return sprintf("ascent <%f>", metrics.ascent);
 			case descent_coord:
@@ -429,6 +600,12 @@ extend namespace Nichrome {
 			case rsb_coord:
 				x1 = x2 = metrics.right_side_bearing;
 				break;
+			case width_coord:
+				x1 = 0;
+				x2 = metrics.width;
+				y1 = 0;
+				y2 = 0;
+				break;
 			case ascent_coord:
 				y1 = y2 = -metrics.ascent;
 				break;
@@ -449,6 +626,7 @@ extend namespace Nichrome {
 			translate(cr, 0, font_ascent);
 			bound(cr, &glyphed, lsb_coord);
 			bound(cr, &glyphed, rsb_coord);
+			bound(cr, &glyphed, width_coord);
 			bound(cr, &glyphed, ascent_coord);
 			bound(cr, &glyphed, descent_coord);
 			restore(cr);
@@ -460,22 +638,27 @@ extend namespace Nichrome {
 			twixt(save(cr); restore(cr)) {
 				set_font(cr, "Frutiger LT Std-12");
 				set_source_rgba(cr, 0, 0, 0, 0.15);
+				text_extents_t ma = text_extents(cr, "I");
+
 				text_extents_t m = text_extents(cr, s);
 				if (m.width == 0 || m.height == 0)
 					return;
-				real stroke_width = 2.5;
+				real stroke_width = 2.0;
 				real stroke_height = 2.0;
 				&metrics_t metrics = &glyphed.glyph.metrics;
-				if (metrics.right_side_bearing == metrics.left_side_bearing)
+				if (metrics.right_side_bearing == metrics.left_side_bearing &&
+				    metrics.ascent == -metrics.descent)
 					return;
-				if (metrics.ascent == -metrics.descent)
-					return;
-				real scale_x = (metrics.right_side_bearing - metrics.left_side_bearing) / (m.width - stroke_width);
-				real scale_y = (metrics.ascent + metrics.descent) / (m.height - stroke_height);
-				translate(cr, 0, font_ascent - metrics.ascent);
-				scale(cr, scale_x, scale_y);
-				move_to(cr, -m.x_bearing - stroke_width / 2, -m.y_bearing - stroke_height / 2);
+				real actual_width = (metrics.right_side_bearing - metrics.left_side_bearing) + stroke_width;
+				real actual_height = cap_height + stroke_height;
+				real scale_y = actual_height / ma.height;
+				translate(cr, 0, font_ascent);
+				scale(cr, scale_y, scale_y);
+				move_to(cr, 0, 0);
 				show_text(cr, s);
+				move_to(cr, 0, 0);
+				line_to(cr, m.x_advance, 0);
+				stroke(cr);
 			}
 
 		}
@@ -720,6 +903,8 @@ extend namespace Nichrome {
 				return &glyphed.glyph.metrics.left_side_bearing;
 			case rsb_coord:
 				return &glyphed.glyph.metrics.right_side_bearing;
+			case width_coord:
+				return &glyphed.glyph.metrics.width;
 			case ascent_coord:
 				return &glyphed.glyph.metrics.ascent;
 			case descent_coord:
@@ -1010,7 +1195,7 @@ extend namespace Nichrome {
 			Widget::redraw(&glyphed);
 		}
 
-		public paste(&glyphed_t glyphed, &glyph_t new_glyph)
+		public void paste(&glyphed_t glyphed, &glyph_t new_glyph)
 		{
 			&glyph_t glyph = &glyphed.glyph;
 			int[...] new_outline = {};
@@ -1032,6 +1217,12 @@ extend namespace Nichrome {
 				glyphed.start_coord++;
 
 			Widget::redraw(&glyphed);
+		}
+
+
+		public void set_ink(&glyphed_t glyphed) {
+			metrics_t metrics = measure_ink(&glyphed.glyph);
+			glyphed.glyph.metrics = metrics;
 		}
 
 		void key(&glyphed_t glyphed, &key_event_t key) {
@@ -1127,6 +1318,10 @@ extend namespace Nichrome {
 				break;
 			case "braceright":
 				shift(&glyphed, 0, 1);
+				redraw = true;
+				break;
+			case "i":
+				set_ink(&glyphed);
 				redraw = true;
 				break;
 			case "p":
@@ -1272,11 +1467,6 @@ string[] svg_footer = {
 };
 
 real svg_em = 64;
-real font_ascent = 50;
-real font_descent = 14;
-real x_height = 28;
-real cap_height = 42;
-real missing_glyph = 32;
 
 real
 svg_value(real value)
@@ -1346,7 +1536,7 @@ void print_glyph_svg (file f, &glyph_t glyph)
 	File::fprintf(f, "<glyph unicode=\"%s\"", charname);
 	if (hash_test(svg_names, glyph.ucs4))
 		File::fprintf(f, " glyph-name=\"%s\"", svg_names[glyph.ucs4]);
-	File::fprintf(f, " horiz-adv-x=\"%f\"", svg_value(metrics.right_side_bearing + 12));
+	File::fprintf(f, " horiz-adv-x=\"%f\"", svg_value(metrics.width));
 
 	const int font_ascent = 50;
 
@@ -1491,10 +1681,28 @@ void main () {
 	&widget_t	ucs4name;
 	&widget_t	infotext = Textline::new(&nichrome, 80);
 
+	void check_ink() {
+		int[...] keys = hash_keys(font);
+
+		bool key_gt(int a, int b) { return a > b; }
+
+		Sort::qsort(&keys, key_gt);
+
+		for (int i = 0; i < dim(keys); i++) {
+			int key = keys[i];
+			metrics_t check = measure_ink(&font[key]);
+			if (check != font[key].metrics)
+				printf("metrics for 0x%x %v != %v\n", font[key].ucs4, font[key].metrics, check);
+		}
+	}
+
 	bool glyphed_key_callback (&widget_t widget, string key) {
 		switch (key) {
 		case "Tab":
 			set_key_focus(&nichrome, &ucs4name);
+			return true;
+		case "I":
+			check_ink();
 			return true;
 		default:
 			break;

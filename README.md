@@ -58,7 +58,7 @@ border of 0.01" around the text:
 
 Draw the sample below
 
-	$ gcode-text -o gcode-text.gcode -T "Gcode-text" -x 0 -y 0 -w 8 -h 1 -r
+	$ gcode-text -o gcode-text.gcode -T "Gcode-text" -x 0 -y 0 -w 6 -h 1 -r -b 0.1
 
 ![sample gcode output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.png)
  

@@ -27,6 +27,9 @@ import os
 import numbers
 from typing import Any
 from io import StringIO
+from lxml import etree # type: ignore
+from svg.path import parse_path # type: ignore
+from svg.path import Path, Move, Line, Arc, CubicBezier, QuadraticBezier, Close # type: ignore
 
 class Point:
     x: float
@@ -292,6 +295,62 @@ class MatrixDraw(Draw):
         super().curve(x1, y1, x2, y2, x3, y3)
 
 
+class DebugDraw(Draw):
+    def move(self, x: float, y: float) -> None:
+        print('move %f %f' % (x, y))
+
+    def draw(self, x: float, y: float) -> None:
+        print('line %f %f' % (x, y))
+
+    def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> None:
+        print('curve %f %f %f %f %f %f' % (x1, y1, x2, y2, x3, y3))
+
+class MeasureDraw(Draw):
+
+    def __init__(self, tolerance: float):
+        self.min_x = 1e30
+        self.max_x = -1e30
+        self.min_y = 1e30
+        self.max_y = -1e30
+        self.last_x = 0
+        self.last_y = 0
+        self.tolerance = tolerance
+
+    def __str__(self) -> str:
+        return '%f,%f - %f,%f' % (self.min_x, self.min_y, self.max_x, self.max_y)
+                
+
+    def point(self, x: float, y: float) -> None:
+        self.min_x = min(self.min_x, x)
+        self.min_y = min(self.min_y, y)
+        self.max_x = max(self.max_x, x)
+        self.max_y = max(self.max_y, y)
+
+    def smudge_point(self, x: float, y: float) -> None:
+        self.min_x = min(self.min_x, x - self.tolerance)
+        self.min_y = min(self.min_y, y - self.tolerance)
+        self.max_x = max(self.max_x, x + self.tolerance)
+        self.max_y = max(self.max_y, y + self.tolerance)
+
+    def move(self, x: float, y: float) -> None:
+        self.last_x = x
+        self.last_y = y
+
+    def draw(self, x: float, y: float) -> None:
+        self.point(self.last_x, self.last_y)
+        self.point(x, y)
+        self.last_x = x
+        self.last_y = y
+
+    def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> None:
+        s = Spline(
+            Point(self.last_x, self.last_y), Point(x1, y1), Point(x2, y2), Point(x3, y3)
+        )
+        ps = s.decompose(self.tolerance)
+        for p in ps[:-1]:
+            self.smudge_point(p.x, p.y)
+        self.draw(ps[-1].x, ps[-1].y)
+
 UCS_PAGE_SHIFT = 8
 UCS_PER_PAGE = 1 << UCS_PAGE_SHIFT
 
@@ -299,12 +358,20 @@ UCS_PER_PAGE = 1 << UCS_PAGE_SHIFT
 # encodes a specific Unicode page
 class Charmap:
     page: int
-    offsets: tuple[int]
+    offsets: tuple[int, ...]
 
     def __init__(self, page, offsets) -> None:
         self.page = page
         self.offsets = offsets
 
+    def __str__(self) -> str:
+        s = 'page = 0x%x, offsets = (\n' % (self.page)
+        for base in range(0, len(self.offsets), 8):
+            for off in range(8):
+                s += '%5d,' % self.offsets[base + off]
+            s += '\n'
+        s += ')\n'
+        return s
 
 class TextMetrics:
     left_side_bearing: float
@@ -345,17 +412,22 @@ class TextMetrics:
         )
 
 
+svg_ns:str = '{http://www.w3.org/2000/svg}'
+
+def svg_tag(tag: str) -> str:
+    return svg_ns + tag
+
 class Font:
     name: str
     style: str
-    charmap: tuple[Charmap]
-    outlines: tuple
+    charmap: tuple[Charmap, ...]
+    outlines: tuple[str|float|int, ...]
     space: int
     ascent: int
     descent: int
     height: int
 
-    def __init__(self, name, style, charmap, outlines, space, ascent, descent, height) -> None:
+    def __init__(self, name, style, charmap, outlines, space, ascent, descent, height, units_per_em = 64) -> None:
         self.name = name
         self.style = style
         self.charmap = charmap
@@ -363,7 +435,7 @@ class Font:
         self.space = space
         self.ascent = ascent
         self.descent = descent
-        self.height = height
+        self.units_per_em = units_per_em
 
     #  Extract the unicode page number from a ucs4 value
     def ucs_page(self, ucs4: int) -> int:
@@ -386,32 +458,50 @@ class Font:
         return self.charmap[0].offsets[0]
 
     #  Helper functions to extract data from the glyph array
-    def glyph_left(self, offset: int) -> int:
-        return self.outlines[offset + 0]
+    def glyph_left(self, offset: int) -> float:
+        val = self.outlines[offset + 0]
+        assert isinstance(val, (int, float))
+        return val
 
-    def glyph_right(self, offset: int) -> int:
-        return self.outlines[offset + 1]
+    def glyph_right(self, offset: int) -> float:
+        val = self.outlines[offset + 1]
+        assert isinstance(val, (int, float))
+        return val
 
-    def glyph_width(self, offset: int) -> int:
-        return self.outlines[offset + 2]
+    def glyph_width(self, offset: int) -> float:
+        val = self.outlines[offset + 2]
+        assert isinstance(val, (int, float))
+        return val
         
-    def glyph_ascent(self, offset: int) -> int:
-        return self.outlines[offset + 3]
+    def glyph_ascent(self, offset: int) -> float:
+        val = self.outlines[offset + 3]
+        assert isinstance(val, (int, float))
+        return val
 
-    def glyph_descent(self, offset: int) -> int:
-        return self.outlines[offset + 4]
+    def glyph_descent(self, offset: int) -> float:
+        val = self.outlines[offset + 4]
+        assert isinstance(val, (int, float))
+        return val
 
     def glyph_n_snap_x(self, offset: int) -> int:
-        return self.outlines[offset + 5]
+        val = self.outlines[offset + 5]
+        assert isinstance(val, int)
+        return val
 
     def glyph_n_snap_y(self, offset: int) -> int:
-        return self.outlines[offset + 6]
+        val = self.outlines[offset + 6]
+        assert isinstance(val, int)
+        return val
 
-    def glyph_snap_x(self, offset: int, s: int) -> int:
-        return self.outlines[offset + 7 + s]
+    def glyph_snap_x(self, offset: int, s: int) -> float:
+        val = self.outlines[offset + 7 + s]
+        assert isinstance(val, (int, float))
+        return val
 
-    def glyph_snap_y(self, offset: int, s: int) -> int:
-        return self.outlines[offset + 7 + self.glyph_n_snap_x(offset) + s]
+    def glyph_snap_y(self, offset: int, s: int) -> float:
+        val = self.outlines[offset + 7 + self.glyph_n_snap_x(offset) + s]
+        assert isinstance(val, (int, float))
+        return val
 
     def glyph_draw(self, offset: int) -> int:
         return offset + 7 + self.glyph_n_snap_x(offset) + self.glyph_n_snap_y(offset)
@@ -423,18 +513,24 @@ class Font:
             offset = offset + 1
             yield value
 
+    def gen_outline_value(self, outline: tuple[Any,...], offset: int):
+        """Return the next element of the outlines array"""
+        while True:
+            value = outline[offset]
+            offset = offset + 1
+            yield value
 
     def gen_pages(self) -> tuple[int,...]:
         pages: list[int] = []
         offset = 0
         page = -1
         while offset < len(self.outlines):
-            ucs4 = self.outlines[offset]
+            ucs4 = int(self.outlines[offset])
             offset += 1
             if self.ucs_page(ucs4) != page:
                 page = self.ucs_page(ucs4)
                 pages += [page]
-            stroke = offset + 7 + self.outlines[offset + 5] + self.outlines[offset + 6]
+            stroke = offset + 7 + self.glyph_n_snap_x(offset) + self.glyph_n_snap_y(offset)
             while self.outlines[stroke] != 'e':
                 cmd = self.outlines[stroke]
                 if cmd == 'm' or cmd == 'l':
@@ -455,11 +551,11 @@ class Font:
         offsets: list[int] = 256*[1]
         offset = 0
         while offset < len(self.outlines):
-            ucs4 = self.outlines[offset]
+            ucs4 = int(self.outlines[offset])
             offset += 1
             if self.ucs_page(ucs4) == page:
                 offsets[self.ucs_char_in_page(ucs4)] = offset
-            stroke = offset + 7 + self.outlines[offset + 5] + self.outlines[offset + 6]
+            stroke = offset + 7 + self.glyph_n_snap_x(offset) + self.glyph_n_snap_y(offset)
             while self.outlines[stroke] != 'e':
                 cmd = self.outlines[stroke]
                 if cmd == 'm' or cmd == 'l':
@@ -473,24 +569,25 @@ class Font:
             offset = stroke + 1
         return tuple(offsets)
 
-    #
-    # Draw a single glyph using the provide callbacks.
-    #
-    def glyph_path(self, ucs4: int, calls: Draw):
-        glyph_start = self.glyph_offset(ucs4)
-        offset = self.glyph_draw(glyph_start)
-
+    def outline_path(self, ucs4: int, outlines: tuple[Any,...], offset: int, calls: Draw) -> None:
         x1 = 0
         y1 = 0
 
-        value = self.gen_value(offset)
+        value = self.gen_outline_value(outlines, offset)
 
+        prev_op = None
         while True:
             op = next(value)
 
             if op == "m":
-                x1 = next(value)
-                y1 = next(value)
+                if prev_op == op:
+                    print('Extra move in 0x%x' % ucs4)
+                _x1 = next(value)
+                _y1 = next(value)
+                if _x1 == x1 and _y1 == y1:
+                    print('gratuitous move in 0x%x to %f %f' % (ucs4, _x1, _y1))
+                x1 = _x1
+                y1 = _y1
                 calls.move(x1, y1)
             elif op == "l":
                 x1 = next(value)
@@ -516,11 +613,22 @@ class Font:
                 y2 = y1 + 2 * (_y1 - y1) / 3
                 calls.curve(x3, y3, x2, y2, x1, y1)
             elif op == "e":
-                return self.glyph_width(glyph_start)
+                return
             else:
-                print("unknown font op %s in glyph %d" % (op, ucs4))
+                print("unknown font op %s in glyph %d at %d" % (op, ucs4, offset))
                 raise ValueError
-                return self.glyph_width(glyph_start)
+                return
+            prev_op = op
+
+    #
+    # Draw a single glyph using the provide callbacks.
+    #
+    def glyph_path(self, ucs4: int, calls: Draw) -> float:
+        glyph_start: int = self.glyph_offset(ucs4)
+        offset: int = self.glyph_draw(glyph_start)
+
+        self.outline_path(ucs4, self.outlines, offset, calls)
+        return self.glyph_width(glyph_start)
 
     #
     # Draw a sequence of glyphs using the provided callbacks,
@@ -571,8 +679,134 @@ class Font:
                 ret = m
                 started = True
             x = m.width
-        
         return ret
+
+    def add_offset(self, ucs4: int, offset: int) -> None:
+        page = self.ucs_page(ucs4)
+        idx = self.ucs_char_in_page(ucs4)
+        charmap = None
+        for i in range(len(self.charmap)):
+            if self.charmap[i].page == page:
+                charmap = self.charmap[i]
+                break
+        else:
+            charmap = Charmap(page, 256*[1])
+            self.charmap += (charmap,)
+        l = list(charmap.offsets)
+        l[idx] = offset
+        charmap.offsets = tuple(l)
+        
+    def measure_ink(self, ucs4: int, outlines: tuple[Any, ...], offset: int) -> list[float]:
+        measure_calls = MeasureDraw(self.units_per_em / 1e6)
+        self.outline_path(ucs4, outlines, offset, measure_calls)
+        if measure_calls.min_x > measure_calls.max_x or measure_calls.min_y > measure_calls.max_y:
+            measure_calls.min_x = 0
+            measure_calls.max_x = 0
+            measure_calls.min_y = 0
+            measure_calls.max_y = 0
+        return [measure_calls.min_x,
+                measure_calls.max_x,
+                0,
+                -measure_calls.min_y,
+                measure_calls.max_y]
+
+    def set_svg_face(self, element):
+        for name, value in sorted(element.items()):
+            if name == 'ascent':
+                self.ascent = float(value)
+            elif name == 'descent':
+                self.descent = abs(float(value))
+            elif name == 'font-family':
+                self.name = value
+            elif name == 'units-per-em':
+                self.units_per_em = float(value)
+
+    def add_svg_glyph(self, element, missing) -> float:
+        if missing:
+            ucs4 = 0
+        else:
+            ucs4 = ord(element.get('unicode'))
+        width = float(element.get('horiz-adv-x'))
+        cur_x = 0
+        cur_y = 0
+        mov_x = 0
+        mov_y = 0
+        offset = len(self.outlines) + 1
+        self.add_offset(ucs4, offset)
+        outline: tuple[Any,...] = ()
+        path_string = element.get('d')
+        if path_string is not None:
+            path = parse_path(path_string)
+            for p in path:
+                if p.start.real != cur_x or p.start.imag != cur_y:
+                    outline += ('m', p.start.real, -p.start.imag)
+                    mov_x = p.start.real
+                    mov_y = p.start.imag
+                if isinstance(p, Move):
+                    pass
+                elif isinstance(p, Line):
+                    outline += ('l', p.end.real, -p.end.imag)
+                elif isinstance(p, CubicBezier):
+                    outline += ('c',
+                                      p.control1.real, -p.control1.imag,
+                                      p.control2.real, -p.control2.imag,
+                                      p.end.real, -p.end.imag)
+                elif isinstance(p, Close):
+                    if cur_x != mov_x or cur_y != mov_y:
+                        outline += ('l', mov_x, mov_y)
+                cur_x = p.end.real
+                cur_y = p.end.imag
+        
+        outline += ('e',)
+        measure = self.measure_ink(ucs4, outline, 0)
+        measure[2] = width
+        new_outlines = (ucs4, ) + tuple(measure) + (0, 0) + outline
+        self.outlines += new_outlines
+        return width
+        
+    def dump_charmap(self):
+        for i in range(len(self.charmap)):
+            print('%s' % self.charmap[i])
+
+    def dump_outlines(self):
+        debug_draw = DebugDraw()
+        for i in range(len(self.charmap)):
+            charmap = self.charmap[i]
+            for j in range(len(charmap.offsets)):
+                if charmap.offsets[j] != 1:
+                    ucs4 = charmap.page * 256 + j
+                    print("ucs4 0x%x" % ucs4);
+                    self.glyph_path(ucs4, debug_draw)
+
+    @classmethod
+    def parse_svg_font(cls, node_list):
+        for node in node_list:
+            if etree.iselement(node):
+                if node.tag == svg_tag('defs'):
+                    return Font.parse_svg_font(node)
+                elif node.tag == svg_tag('font'):
+                    font = Font('unknown', None, (), (), 0, 0, 0, 0)
+                    for element in node:
+                        if element.tag == svg_tag('font-face'):
+                            font.set_svg_face(element)
+                        elif element.tag == svg_tag('missing-glyph'):
+                            font.space = font.add_svg_glyph(element, True)
+                        elif element.tag == svg_tag('glyph'):
+                            font.add_svg_glyph(element, False)
+                    return font
+                    
+
+    @classmethod
+    def svg_font(cls, filename: str) -> Font:
+        parser = etree.XMLParser(remove_comments=True, recover=True, resolve_entities=False)
+        try:
+            doc = etree.parse(filename, parser=parser)
+            svg_root = doc.getroot()
+        except Exception as exc:
+            print("Failed to load font (%s)" % exc)
+            sys.exit(1)
+        return Font.parse_svg_font(svg_root)
+
 
 #
 # Each glyph contains metrics, a list of snap coordinates and then a list of
@@ -2385,9 +2619,7 @@ outlines = (
     'l', 26, -13,
     'c', 26, 2, 4, 4, 4, -7,
     'c', 4, -16, 18, -16, 26, -15,
-    'm', 26, -15,
     'l', 49, -15,
-    'm', 49, -15,
     'c', 49, -32, 26, -32, 26, -15,
     'c', 26, 2, 40, 1, 49, -2,
     'e',
@@ -3272,7 +3504,6 @@ outlines = (
     -42, 0, #  snap_y
     'm', 8, -42,
     'l', 8, 0,
-    'm', 8, 0,
     'c', 6, 2, 8, 8, 15, 5,
     'e',
    0x12f, # 'į'
@@ -5366,29 +5597,29 @@ Charmap(page = 0x0000,
  4740, 4779, 4818, 4860, 4923, 4950, 4977, 5007,
  5058, 5098, 5135, 5173, 5211, 5252, 5294, 5356,
  5383, 5421, 5458, 5495, 5535, 5596, 5632, 5669,
- 5711, 5762, 5813, 5867, 5922, 5997, 6073, 6138,
- 6183, 6224, 6265, 6309, 6374, 6401, 6428, 6458,
- 6509, 6554, 6596, 6632, 6668, 6707, 6747, 6807,
- 6856, 6892, 6930, 6968, 7009, 7071, 7109, 7159,
+ 5711, 5762, 5813, 5867, 5922, 5997, 6073, 6132,
+ 6177, 6218, 6259, 6303, 6368, 6395, 6422, 6452,
+ 6503, 6548, 6590, 6626, 6662, 6701, 6741, 6801,
+ 6850, 6886, 6924, 6962, 7003, 7065, 7103, 7153,
         )),
 Charmap(page = 0x0001,
         offsets = (
- 7223, 7257, 7306, 7344, 7397, 7435, 7488, 7524,
- 7560, 7599, 7638, 7683, 7728, 7767, 7806, 7847,
- 7889, 7927, 7969, 8006, 8045, 8086, 8129, 8175,
- 8223, 8264, 8307, 8347, 8389, 8434, 8486, 8532,
- 8585, 8636, 8694, 8736, 8785, 8825, 8866, 8903,
- 8941, 8970, 8999, 9024, 9049, 9078, 9107, 9136,
- 9180, 9214, 9233, 9265, 9327, 9362, 9397, 9434,
- 9471, 9502, 9530, 9555, 9583, 9608, 9636, 9661,
- 9698, 9732, 9760, 9785, 9816, 9854, 9885, 9923,
- 9957, 9998, 10036, 10075, 10114, 10150, 10186, 10226,
- 10266, 10308, 10350, 10398, 10448, 10492, 10527, 10571,
- 10606, 10653, 10691, 10734, 10777, 10823, 10869, 10919,
- 10969, 11015, 11061, 11099, 11144, 11178, 11216, 11247,
- 11285, 11324, 11366, 11401, 11439, 11478, 11520, 11580,
- 11643, 11684, 11728, 11767, 11809, 11846, 11883, 11920,
- 11961, 12019, 12050, 12081, 12121, 12161, 12195, 12229,
+ 7217, 7251, 7300, 7338, 7391, 7429, 7482, 7518,
+ 7554, 7593, 7632, 7677, 7722, 7761, 7800, 7841,
+ 7883, 7921, 7963, 8000, 8039, 8080, 8123, 8169,
+ 8217, 8258, 8301, 8341, 8383, 8428, 8480, 8526,
+ 8579, 8630, 8688, 8730, 8779, 8819, 8860, 8897,
+ 8935, 8964, 8993, 9018, 9043, 9072, 9101, 9127,
+ 9171, 9205, 9224, 9256, 9318, 9353, 9388, 9425,
+ 9462, 9493, 9521, 9546, 9574, 9599, 9627, 9652,
+ 9689, 9723, 9751, 9776, 9807, 9845, 9876, 9914,
+ 9948, 9989, 10027, 10066, 10105, 10141, 10177, 10217,
+ 10257, 10299, 10341, 10389, 10439, 10483, 10518, 10562,
+ 10597, 10644, 10682, 10725, 10768, 10814, 10860, 10910,
+ 10960, 11006, 11052, 11090, 11135, 11169, 11207, 11238,
+ 11276, 11315, 11357, 11392, 11430, 11469, 11511, 11571,
+ 11634, 11675, 11719, 11758, 11800, 11837, 11874, 11911,
+ 11952, 12010, 12041, 12072, 12112, 12152, 12186, 12220,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5397,9 +5628,9 @@ Charmap(page = 0x0001,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 12261, 12280, 12305, 12336, 12370, 12423, 12476, 12533,
- 12568, 12618, 12665, 12703, 12756, 12816, 12853, 12905,
- 12933, 12961, 13000, 13039, 13077,    1,    1,    1,
+ 12252, 12271, 12296, 12327, 12361, 12414, 12467, 12524,
+ 12559, 12609, 12656, 12694, 12747, 12807, 12844, 12896,
+ 12924, 12952, 12991, 13030, 13068,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5435,7 +5666,7 @@ Charmap(page = 0x0002,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 13118, 13141, 13169, 13213, 13236, 13259,    1,    1,
+ 13109, 13132, 13160, 13204, 13227, 13250,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5443,21 +5674,21 @@ Charmap(page = 0x0002,
         )),
 Charmap(page = 0x0003,
         offsets = (
- 13284, 13303, 13322, 13344, 13367,    1, 13386, 13409,
- 13437,    1, 13480, 13524, 13549,    1,    1,    1,
+ 13275, 13294, 13313, 13335, 13358,    1, 13377, 13400,
+ 13428,    1, 13471, 13515, 13540,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1, 13571,
- 13590,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1, 13562,
+ 13581,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 13613,    1,    1,    1,    1,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1,    1,
+ 13604,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5480,26 +5711,26 @@ Charmap(page = 0x0020,
         offsets = (
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 13632, 13651, 13670, 13689, 13708, 13727, 13746, 13771,
- 13796, 13828, 13860, 13892, 13924, 13975, 14026, 14077,
- 14128, 14153, 14184,    1,    1,    1, 14276,    1,
+ 13623, 13642, 13661, 13680, 13699, 13718, 13737, 13762,
+ 13787, 13819, 13851, 13883, 13915, 13966, 14017, 14068,
+ 14119, 14144, 14175,    1,    1,    1, 14267,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 14334,    1,    1,    1,    1,    1,    1,    1,
-    1, 14404, 14426,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1,    1,    1,    1,    1,
+ 14325,    1,    1,    1,    1,    1,    1,    1,
+    1, 14395, 14417,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
- 14448, 14478,    1,    1, 14512, 14537, 14573, 14610,
- 14632, 14676, 14713, 14738, 14757, 14782, 14805, 14828,
- 14860, 14890, 14912, 14945, 14975, 15000, 15036, 15073,
- 15095, 15139, 15176, 15201, 15220, 15245, 15268,    1,
- 15291, 15334, 15367, 15397, 15422, 15455, 15487, 15518,
- 15537, 15582, 15614, 15650, 15687,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1,    1,    1, 15719,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1,    1,
+ 14439, 14469,    1,    1, 14503, 14528, 14564, 14601,
+ 14623, 14667, 14704, 14729, 14748, 14773, 14796, 14819,
+ 14851, 14881, 14903, 14936, 14966, 14991, 15027, 15064,
+ 15086, 15130, 15167, 15192, 15211, 15236, 15259,    1,
+ 15282, 15325, 15358, 15388, 15413, 15446, 15478, 15509,
+ 15528, 15573, 15605, 15641, 15678,    1,    1,    1,
+    1,    1,    1,    1,    1,    1,    1,    1,
+    1,    1,    1,    1, 15710,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5515,7 +5746,7 @@ Charmap(page = 0x0022,
         offsets = (
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
-    1,    1, 15761,    1,    1,    1,    1,    1,
+    1,    1, 15752,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
     1,    1,    1,    1,    1,    1,    1,    1,
@@ -5548,7 +5779,7 @@ Charmap(page = 0x0022,
         )),
 )
 
-font = Font(
+default_font = Font(
     name        = "Default",
     style       = "Roman",
     charmap     = charmap,
@@ -5621,7 +5852,7 @@ class Device:
     draw: str = "G01 X%f Y%f F%f\n"
     curve: str = ""
     stop: str = "M30\n"
-    values: Values = None
+    values: Values
 
     def __init__(self, values: Values):
         if values.device:
@@ -5683,10 +5914,11 @@ class GCode(Draw):
     f: Any
     device: Device
 
-    def __init__(self, f: Any, device: Device, values: Values):
+    def __init__(self, f: Any, device: Device, values: Values, font: Font):
         self.f = f
         self.device = device
         self.values = values
+        self.font = font
         if values.settings != None:
             device.set_settings(values.settings)
 
@@ -5731,7 +5963,7 @@ class GCode(Draw):
 
     def text_path(self, m: Matrix, s: str):
         draw = MatrixDraw(self.get_draw(), m)
-        font.text_path(s, draw)
+        self.font.text_path(s, draw)
 
     def text_into_rect(self, r: Rect, s: str):
         if self.values.rect:
@@ -5747,7 +5979,7 @@ class GCode(Draw):
             print("border %f too tall for rectangle %s" % (self.values.border, r))
             return
 
-        metrics = font.text_metrics(s)
+        metrics = self.font.text_metrics(s)
 
         if self.values.font_height:
             ascent = metrics.font_ascent
@@ -5839,6 +6071,9 @@ def Args():
                         help='Oblique sheer amount')
     parser.add_argument('-f', '--flatness', action='store', type=float,
                         help='Spline decomposition tolerance')
+    parser.add_argument('--font', action='store', type=str,
+                        help='SVG font file name',
+                        default=None)
     parser.add_argument('-s', '--speed', action='store', type=float,
                         help='Feed rate')
     parser.add_argument('-t', '--template', action='store',
@@ -5972,6 +6207,11 @@ def main():
     if args.output != '-':
         output = open(args.output, "w")
 
+    if args.font:
+        font = Font.svg_font(args.font)
+    else:
+        font = default_font
+
     if args.dump_offsets:
         pages = font.gen_pages()
         for page in pages:
@@ -5988,7 +6228,7 @@ def main():
     rect_gen = get_rect(values)
     line_gen = get_line(values)
 
-    gcode = GCode(output, device, values)
+    gcode = GCode(output, device, values, font)
     gcode.start()
 
     while True:

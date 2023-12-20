@@ -5749,13 +5749,16 @@ class GCode(Draw):
 
         metrics = font.text_metrics(s)
 
-        text_width = metrics.right_side_bearing - metrics.left_side_bearing
         if self.values.font_height:
             ascent = metrics.font_ascent
             descent = metrics.font_descent
+            text_x = 0;
+            text_width = metrics.width
         else:
             ascent = metrics.ascent
             descent = metrics.descent
+            text_x = metrics.left_side_bearing
+            text_width = metrics.right_side_bearing - metrics.left_side_bearing
 
         text_height = ascent + descent
 
@@ -5774,13 +5777,13 @@ class GCode(Draw):
         text_off_y = (rect_height - text_height * scale) / 2
 
         if self.values.align == 'left':
-            text_off_x = 0
+            text_off_x: float = 0
         elif self.values.align == 'center':
             text_off_x = (rect_width - text_width * scale) / 2
         else:
             text_off_x = text_width
 
-        metrics_x_adjust = metrics.left_side_bearing * scale
+        metrics_x_adjust = text_x * scale
 
         text_off_x = text_off_x - metrics_x_adjust
 
@@ -5874,7 +5877,7 @@ def Args():
                         choices=['left', 'right', 'center'],
                         default=None)
     parser.add_argument('--font-height', action='store_true',
-                        help='Use font height for strings instead of glyph heights',
+                        help='Use font metrics for strings instead of glyph metrics',
                         default=None)
     parser.add_argument('-C', '--config-dir', action='store',
                         help='Directory containing device configuration files')

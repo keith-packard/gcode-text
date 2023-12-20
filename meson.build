@@ -11,13 +11,17 @@ dirs_data.set('VERSION', meson.project_version())
 
 font_dir_list = get_option('font-dirs')
 
-font_dirs = ''
+config_dirs = ''
 
-foreach font_dir : font_dir_list
-  font_dirs = font_dirs + '"' + font_dir + '", '
+foreach config_dir : [share_dir] + font_dir_list
+  if config_dirs == ''
+    config_dirs = config_dir
+  else
+    config_dirs = config_dirs + '", "' + config_dir
+  endif
 endforeach
 
-dirs_data.set('FONT_DIRS', font_dirs)
+dirs_data.set('CONFIG_DIRS', config_dirs)
 
 mypy = find_program('mypy')
 

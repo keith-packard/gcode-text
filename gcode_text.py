@@ -689,7 +689,7 @@ class Values:
         self.text = None
         self.align = 'center'
         self.font_height = False
-        self.config_dir = ['@SHARE_DIR@', @FONT_DIRS@]
+        self.config_dir = ["@CONFIG_DIRS@"]
         self.rects = None
         self.file = None
 

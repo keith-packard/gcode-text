@@ -5,12 +5,25 @@ project('gcode-text',
 
 share_dir = get_option('prefix') / get_option('datadir') / meson.project_name()
 
-message('share_dir is ' + share_dir)
-
 dirs_data = configuration_data()
 dirs_data.set('SHARE_DIR', share_dir)
 dirs_data.set('VERSION', meson.project_version())
 
+font_dir_list = get_option('font-dirs')
+
+font_dirs = ''
+
+foreach font_dir : font_dir_list
+  font_dirs = font_dirs + '"' + font_dir + '", '
+endforeach
+
+dirs_data.set('FONT_DIRS', font_dirs)
+
+mypy = find_program('mypy')
+
+python = find_program('python3')
+
+nickle = find_program('nickle')
 
 python_exe = configure_file(input: 'gcode_text.py',
 			    output: 'gcode-text',
@@ -18,9 +31,23 @@ python_exe = configure_file(input: 'gcode_text.py',
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
 
-mypy = find_program('mypy')
+nickle_exe = configure_file(input: 'edit-font.5c',
+			    output: 'gcode-edit-font',
+			    configuration: dirs_data,
+			    install_mode: 'rwxr-xr-x',
+			    install_dir: get_option('bindir'))
 
-python = find_program('python3')
+font_filename = 'twin-sans.svg'
+
+twin_sans_svg = custom_target(font_filename,
+			      output: font_filename,
+			      input: 'font',
+			      command: [nickle, nickle_exe,
+					'--glyphlist', '@CURRENT_SOURCE_DIR@' / 'glyphlist.txt',
+					'--svg', '@OUTPUT@', '@INPUT@'
+				       ],
+			      install: true,
+			      install_dir: share_dir)
 
 test('mypy',
      mypy,
@@ -47,3 +74,9 @@ template_files = [
   ]
 
 install_data(template_files)
+
+font_files = [
+  'font',
+  ]
+
+install_data(font_files)

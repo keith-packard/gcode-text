@@ -23,6 +23,7 @@ autoload Nichrome::Box;
 autoload Nichrome::Label;
 autoload Nichrome::Button;
 autoload Nichrome::Textline;
+autoload JSON;
 autoload ParseArgs;
 
 autoload Sort;
@@ -45,6 +46,18 @@ typedef struct {
 	int[...]	snap_y;
 	int[...]	outline;
 } glyph_t;
+
+typedef struct {
+	string		name;
+	string		style;
+	string[...]	metadata;
+	real		units_per_em;
+	real		ascent;
+	real		descent;
+	real		cap_height;
+	real		x_height;
+	glyph_t[int]	glyphs;
+} font_t;
 
 glyph_t sample_glyph = {
 	.ucs4 = 0xae,
@@ -73,6 +86,66 @@ glyph_t sample_glyph = {
     'e',
 	}
 };
+
+font_t sample_font = {
+	.name = "sample",
+	.style = "all",
+	.metadata = {},
+	.units_per_em = 64,
+	.ascent = 50,
+	.descent = 14,
+	.cap_height = 42,
+	.x_height = 28,
+	.glyphs = { sample_glyph.ucs4 => sample_glyph },
+};
+
+int
+first_ucs4 (&font_t font)
+{
+	int[...] keys = hash_keys(font.glyphs);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	return keys[0];
+}
+
+int
+next_ucs4 (&font_t font, int ucs4)
+{
+	int[...] keys = hash_keys(font.glyphs);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = 0; i < dim(keys); i++)
+		if (keys[i] > ucs4)
+			return keys[i];
+	return keys[dim(keys)-1];
+}
+
+int
+prev_ucs4 (&font_t font, int ucs4)
+{
+	int[...] keys = hash_keys(font.glyphs);
+
+	if (dim(keys) == 0)
+		return 0;
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+	for (int i = dim(keys)-1; i >= 0; i--)
+		if (keys[i] < ucs4)
+			return keys[i];
+	return keys[0];
+}
 
 /*
  * Draw callbacks provided to the glyph drawing function
@@ -285,7 +358,7 @@ public metrics_t measure_ink(&glyph_t glyph)
 	glyph_path(&glyph, &ink_calls);
 
 	if (min_x > max_x) {
-		min_x = max_x = 4;
+		min_x = max_x = 0;
 	}
 	if (min_y > max_y) {
 		max_y = min_y = 0;
@@ -422,12 +495,6 @@ glyph_t read_glyph(file f)
 	};
 }
 
-real font_ascent = 50;
-real font_descent = 14;
-real x_height = 28;
-real cap_height = 42;
-real missing_glyph = 32;
-
 extend namespace Nichrome {
 	public namespace Glyphed {
 
@@ -452,6 +519,7 @@ extend namespace Nichrome {
 			rgba_color_t	select;
 			rgba_color_t	grid;
 			rgba_color_t	baseline;
+			&font_t		font;
 			&glyph_t	glyph;
 			int		start_coord;
 			int		end_coord;
@@ -467,8 +535,6 @@ extend namespace Nichrome {
 		const int width_coord = -3;
 		const int ascent_coord = -2;
 		const int descent_coord = -1;
-
-		const int font_ascent = 50;
 
 		void info(&glyphed_t glyphed, string format, args...) {
 			if (!is_uninit(&glyphed.info_callback))
@@ -628,7 +694,7 @@ extend namespace Nichrome {
 			&glyph_t glyph = &glyphed.glyph;
 			&metrics_t metrics = &glyph.metrics;
 			save(cr);
-			translate(cr, 0, font_ascent);
+			translate(cr, 0, glyphed.font.ascent);
 			bound(cr, &glyphed, lsb_coord);
 			bound(cr, &glyphed, rsb_coord);
 			bound(cr, &glyphed, width_coord);
@@ -655,9 +721,9 @@ extend namespace Nichrome {
 				    metrics.ascent == -metrics.descent)
 					return;
 				real actual_width = (metrics.right_side_bearing - metrics.left_side_bearing) + stroke_width;
-				real actual_height = cap_height + stroke_height;
+				real actual_height = glyphed.font.cap_height + stroke_height;
 				real scale_y = actual_height / ma.height;
-				translate(cr, 0, font_ascent);
+				translate(cr, 0, glyphed.font.ascent);
 				scale(cr, scale_y, scale_y);
 				move_to(cr, 0, 0);
 				show_text(cr, s);
@@ -798,7 +864,7 @@ extend namespace Nichrome {
 			};
 
 			save(cr);
-			translate(cr, 0, 50);
+			translate(cr, 0, glyphed.font.ascent);
 			set_line_cap(cr, line_cap_t.ROUND);
 			set_line_join(cr, line_join_t.ROUND);
 
@@ -847,7 +913,7 @@ extend namespace Nichrome {
 				stroke(cr);
 			}
 			for (int row = 0; row < rows; row++) {
-				if (row == font_ascent) {
+				if (row == glyphed.font.ascent) {
 					set_source_rgba(cr, glyphed.baseline.red, glyphed.baseline.green,
 							glyphed.baseline.blue, glyphed.baseline.alpha);
 					set_line_width(cr, 0.1);
@@ -1396,6 +1462,14 @@ extend namespace Nichrome {
 			Widget::redraw(&glyphed);
 		}
 
+		public void set_font(&glyphed_t glyphed, &font_t font) {
+			&glyphed.font = &font;
+			&glyphed.glyph = &font.glyphs[first_ucs4(&font)];
+			glyphed.start_coord = 0;
+			glyphed.end_coord = glyphed.start_coord;
+			Widget::redraw(&glyphed);
+		}
+
 		public void set_key_callback(&glyphed_t glyphed, key_callback_t key_callback) {
 			glyphed.key_callback = key_callback;
 		}
@@ -1408,11 +1482,12 @@ extend namespace Nichrome {
 			return &glyphed.glyph;
 		}
 
-		public *widget_t new(&nichrome_t nichrome, &glyph_t glyph, key_callback_t key_callback, info_callback_t info_callback) {
+		public *widget_t new(&nichrome_t nichrome, &font_t font, key_callback_t key_callback, info_callback_t info_callback) {
 			&glyphed_t glyphed = &(glyphed_t) {};
 
+			&glyphed.font = &font;
 			init(&glyphed, &nichrome);
-			set_glyph(&glyphed, &glyph);
+			set_glyph(&glyphed, &font.glyphs[first_ucs4(&font)]);
 			set_key_callback(&glyphed, key_callback);
 			set_info_callback(&glyphed, info_callback);
 			return &glyphed;
@@ -1422,25 +1497,183 @@ extend namespace Nichrome {
 
 import Nichrome;
 
-glyph_t[int] read_font(file f)
+font_t read_font(file f)
 {
-	glyph_t[int] ret = {};
+	glyph_t[int] glyphs = {};
 	while (!File::end(f)) {
 		glyph_t g = read_glyph(f);
-		ret[g.ucs4] = g;
+		glyphs[g.ucs4] = g;
 	}
-	return ret;
+	return (font_t) {
+		.name = "Twin Sans",
+		.style = "all",
+		.metadata = {
+			"Font name:       Twin Sans",
+			"License:         SIL Open Font License http://scripts.sil.org/OFL",
+			"Created by:      Keith Packard",
+			"A derivative of: Hershey Sans",
+			"",
+			"Prepared in 2023 and converted to SVG fonts",
+			"in 2023 by Keith Packard, www.keithp.com",
+		},
+		.units_per_em = 64,
+		.ascent = 50,
+		.descent = 14,
+		.cap_height = 42,
+		.x_height = 28,
+		.glyphs = glyphs
+	};
 }
 
-void print_font (file f, &glyph_t[int] font)
+real[string] metrics_json(&metrics_t metrics)
 {
-	int[...] keys = hash_keys(font);
+	return (real[string]) {
+		"left_side_bearing" => metrics.left_side_bearing,
+		"right_side_bearing" => metrics.right_side_bearing,
+		"width" => metrics.width,
+		"ascent" => metrics.ascent,
+		"descent" => metrics.descent
+	};
+}
+
+poly[...] outline_json(&real[...] outline)
+{
+	int	i = 0;
+	int	n_coords = 0;
+
+	poly next_outline() {
+		real	val = outline[i++];
+		if (n_coords == 0) {
+			switch (val) {
+			case 'm':
+			case 'l':
+				n_coords = 2;
+				break;
+			case 'c':
+				n_coords = 6;
+				break;
+			case '2':
+				n_coords = 4;
+				break;
+			}
+			return String::new(val);
+		} else {
+			n_coords--;
+			return val;
+		}
+	}
+	return (poly[dim(outline)]) { [i] = next_outline() };
+}
+
+poly[string] glyph_json(&glyph_t glyph)
+{
+	return (poly[string]) {
+		"ucs4" => glyph.ucs4,
+		"metrics" => metrics_json(&glyph.metrics),
+		"outline" => outline_json(&glyph.outline)
+	};
+}
+
+poly[...] glyphs_json(&(glyph_t[int]) glyphs)
+{
+	int[...] keys = hash_keys(glyphs);
+
+	bool key_gt(int a, int b) { return a > b; }
+
+	Sort::qsort(&keys, key_gt);
+
+	return (poly[dim(keys)]) { [i] = glyph_json(&glyphs[keys[i]]) };
+}
+
+void print_font_stf (file f, &font_t font)
+{
+	poly[string] font_json = {
+		"name" => font.name,
+		"style" => font.style,
+		"metadata" => font.metadata,
+		"units_per_em" => font.units_per_em,
+		"ascent" => font.ascent,
+		"descent" => font.descent,
+		"cap_height" => font.cap_height,
+		"x_height" => font.x_height,
+		"glyphs" => glyphs_json(&font.glyphs)
+	};
+
+	JSON::to_json_file(f, font_json);
+	File::fprintf(f, "\n");
+}
+
+poly
+get_json(&poly[string] json, string key, poly def)
+{
+	if (hash_test(json, key))
+		return json[key];
+	return def;
+}
+
+metrics_t json_to_metrics(real[string] metrics_json)
+{
+	return (metrics_t) {
+		.left_side_bearing = metrics_json["left_side_bearing"],
+		.right_side_bearing = metrics_json["right_side_bearing"],
+		.width = metrics_json["width"],
+		.ascent = metrics_json["ascent"],
+		.descent = metrics_json["descent"],
+	};
+}
+
+real[...] json_to_outline(poly[...] outline_json)
+{
+	return (real[dim(outline_json)]) { [i] = is_string(outline_json[i]) ? outline_json[i][0] : outline_json[i] };
+}
+
+glyph_t json_to_glyph(poly[string] glyph_json)
+{
+	return (glyph_t) {
+		.ucs4 = glyph_json["ucs4"],
+		.metrics = json_to_metrics(glyph_json["metrics"]),
+		.snap_x = {},
+		.snap_y = {},
+		.outline = json_to_outline(glyph_json["outline"]),
+	};
+}
+
+glyph_t[int] json_to_glyphs(poly[...] glyphs_json)
+{
+	glyph_t[int] glyphs = {};
+	for (int i = 0; i < dim(glyphs_json); i++) {
+		glyph_t glyph = json_to_glyph(glyphs_json[i]);
+		glyphs[glyph.ucs4] = glyph;
+	}
+	return glyphs;
+}
+
+font_t
+read_font_stf(file f) {
+	poly[string] font_json = JSON::from_json_file(f);
+
+	font_t font = {};
+	font.name = get_json(&font_json, "name", "unknown");
+	font.style = get_json(&font_json, "style", "all");
+	font.metadata = get_json(&font_json, "metadata", (string[...]) {});
+	font.units_per_em = get_json(&font_json, "units_per_em", 64);
+	font.ascent = get_json(&font_json, "ascent", 0);
+	font.descent = get_json(&font_json, "descent", 0);
+	font.cap_height = get_json(&font_json, "cap_height", 0);
+	font.x_height = get_json(&font_json, "x_height", 0);
+	font.glyphs = json_to_glyphs(font_json["glyphs"]);
+	return font;
+}
+
+void print_font (file f, &font_t font)
+{
+	int[...] keys = hash_keys(font.glyphs);
 
 	bool key_gt(int a, int b) { return a > b; }
 
 	Sort::qsort(&keys, key_gt);
 	for (int i = 0; i < dim(keys); i++)
-		print_glyph(f, &font[keys[i]]);
+		print_glyph(f, &font.glyphs[keys[i]]);
 }
 
 string[] svg_header = {
@@ -1450,18 +1683,6 @@ string[] svg_header = {
 "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" version=\"1.1\">",
 "",
 "<metadata>",
-"Font name:       Twin Sans",
-"License:         SIL Open Font License http://scripts.sil.org/OFL",
-"Created by:      Keith Packard",
-"A derivative of: Hershey Sans",
-"",
-"Prepared in 2023 and converted to SVG fonts",
-"in 2023 by Keith Packard, www.keithp.com",
-"</metadata>",
-"<defs>",
-"<font id=\"TwinSans\" horiz-adv-x=\"12\" >",
-"<font-face",
-"font-family=\"Twin Sans\"",
 };
 
 
@@ -1512,7 +1733,7 @@ load_svg_names(string filename)
 	}
 }
 
-void print_glyph_svg (file f, &glyph_t glyph)
+void print_glyph_svg (file f, &font_t font, &glyph_t glyph)
 {
 	string charname;
 	&metrics_t metrics = &glyph.metrics;
@@ -1547,8 +1768,6 @@ void print_glyph_svg (file f, &glyph_t glyph)
 			File::fprintf(f, " glyph-name=\"%s\"", svg_names[glyph.ucs4]);
 	}
 	File::fprintf(f, " horiz-adv-x=\"%f\"", svg_value(metrics.width));
-
-	const int font_ascent = 50;
 
 	bool first = true;
 
@@ -1599,7 +1818,7 @@ void print_glyph_svg (file f, &glyph_t glyph)
 	File::fprintf(f, "/>\n");
 }
 
-void print_font_svg (file f, &glyph_t[int] font)
+void print_font_svg (file f, &font_t font)
 {
 	load_svg_names(glyph_list_name);
 
@@ -1607,75 +1826,36 @@ void print_font_svg (file f, &glyph_t[int] font)
 		File::fprintf(f, "%s\n", svg_header[i]);
 	}
 
-	File::fprintf(f, "units-per-em=\"%f\"\n", svg_em);
-	File::fprintf(f, "ascent=\"%f\"\n", svg_value(font_ascent));
-	File::fprintf(f, "descent=\"%f\"\n", svg_value(font_descent));
-	File::fprintf(f, "cap-height=\"%f\"\n", svg_value(cap_height));
-	File::fprintf(f, "x-height=\"%f\"\n", svg_value(x_height));
+	for (int i = 0; i < dim(font.metadata); i++)
+		File::fprintf(f, "%s\n", font.metadata[i]);
+	File::fprintf(f, "</metadata>\n");
+	File::fprintf(f, "<defs>\n");
+	File::fprintf(f, "<font id=\"%s\">\n", font.name);
+	File::fprintf(f, "<font-face\n");
+	File::fprintf(f, "font-family=\"%s\"\n", font.name);
+	File::fprintf(f, "font-style=\"%s\"\n", font.style);
+	File::fprintf(f, "units-per-em=\"%f\"\n", font.units_per_em);
+	File::fprintf(f, "ascent=\"%f\"\n", font.ascent);
+	File::fprintf(f, "descent=\"%f\"\n", font.descent);
+	File::fprintf(f, "cap-height=\"%f\"\n", font.cap_height);
+	File::fprintf(f, "x-height=\"%f\"\n", font.x_height);
 	File::fprintf(f, "/>\n");
 
-	int[...] keys = hash_keys(font);
+	int[...] keys = hash_keys(font.glyphs);
 
 	bool key_gt(int a, int b) { return a > b; }
 
 	Sort::qsort(&keys, key_gt);
 	for (int i = 0; i < dim(keys); i++)
-		print_glyph_svg(f, &font[keys[i]]);
+		print_glyph_svg(f, &font, &(font.glyphs[keys[i]]));
 	for (int i = 0; i < dim(svg_footer); i++) {
 		File::fprintf(f, "%s\n", svg_footer[i]);
 	}
 }
 
-int
-first_ucs4 (&glyph_t[int] font)
-{
-	int[...] keys = hash_keys(font);
-
-	if (dim(keys) == 0)
-		return 0;
-
-	bool key_gt(int a, int b) { return a > b; }
-
-	Sort::qsort(&keys, key_gt);
-	return keys[0];
-}
-
-int
-next_ucs4 (&glyph_t[int] font, int ucs4)
-{
-	int[...] keys = hash_keys(font);
-
-	if (dim(keys) == 0)
-		return 0;
-
-	bool key_gt(int a, int b) { return a > b; }
-
-	Sort::qsort(&keys, key_gt);
-	for (int i = 0; i < dim(keys); i++)
-		if (keys[i] > ucs4)
-			return keys[i];
-	return keys[dim(keys)-1];
-}
-
-int
-prev_ucs4 (&glyph_t[int] font, int ucs4)
-{
-	int[...] keys = hash_keys(font);
-
-	if (dim(keys) == 0)
-		return 0;
-
-	bool key_gt(int a, int b) { return a > b; }
-
-	Sort::qsort(&keys, key_gt);
-	for (int i = dim(keys)-1; i >= 0; i--)
-		if (keys[i] < ucs4)
-			return keys[i];
-	return keys[0];
-}
-
 string project_version = "@VERSION@";
 string svg_output_name;
+string stf_output_name;
 bool version = false;
 int user_argind;
 
@@ -1693,6 +1873,12 @@ ParseArgs::argdesc argd = {
 			.name = "svg",
 			.expr_name = "svg",
 			.desc = "Target for font in SVG format"
+		},
+		{
+			.var = { .arg_string = &stf_output_name },
+			.name = "stf",
+			.expr_name = "stf",
+			.desc = "Target for font in STF format"
 		},
 		{
 			.var = { .arg_string = &font_name },
@@ -1727,15 +1913,14 @@ void main () {
 	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
 	argv = rest;
 
-	glyph_t[int] font = { sample_glyph.ucs4 => sample_glyph };
+	font_t font = sample_font;
 
 	&nichrome_t		nichrome = new ("Glyph Editor", 0, 0);
 
-	printf("dim(argv) %d\n", dim(argv));
 	if (dim(argv) > 0) {
 		initial_filename = argv[0];
 		twixt(file f = File::open(initial_filename, "r"); File::close(f))
-			font = read_font(f);
+			font = read_font_stf(f);
 	}
 
 	if (!is_uninit(&svg_output_name))
@@ -1746,11 +1931,19 @@ void main () {
 		exit(0);
 	}
 
+	if (!is_uninit(&stf_output_name))
+	{
+		twixt(file f = File::open(stf_output_name, "w"); File::close(f)) {
+			print_font_stf(f, &font);
+		}
+		exit(0);
+	}
+
 	&widget_t	ucs4name;
 	&widget_t	infotext = Textline::new(&nichrome, 80);
 
 	void check_ink() {
-		int[...] keys = hash_keys(font);
+		int[...] keys = hash_keys(font.glyphs);
 
 		bool key_gt(int a, int b) { return a > b; }
 
@@ -1758,9 +1951,9 @@ void main () {
 
 		for (int i = 0; i < dim(keys); i++) {
 			int key = keys[i];
-			metrics_t check = measure_ink(&font[key]);
-			if (check != font[key].metrics)
-				printf("metrics for 0x%x %v != %v\n", font[key].ucs4, font[key].metrics, check);
+			metrics_t check = measure_ink(&font.glyphs[key]);
+			if (check != font.glyphs[key].metrics)
+				printf("metrics for 0x%x %v != %v\n", font.glyphs[key].ucs4, font.glyphs[key].metrics, check);
 		}
 	}
 
@@ -1782,7 +1975,7 @@ void main () {
 		Textline::set_text(&infotext, info);
 	}
 
-	&Glyphed::glyphed_t	glyphed = Glyphed::new (&nichrome, &font[first_ucs4(&font)], glyphed_key_callback, glyphed_info_callback);
+	&Glyphed::glyphed_t	glyphed = Glyphed::new (&nichrome, &font, glyphed_key_callback, glyphed_info_callback);
 
 	void exit_callback (&widget_t widget, bool state) {
 		exit(0);
@@ -1818,24 +2011,24 @@ void main () {
 			else
 				ucs4 = atoi(textline.text);
 			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
-			if (!hash_test(font, ucs4)) {
-				font[ucs4] = font[first_ucs4(&font)];
-				font[ucs4].ucs4 = ucs4;
-				font[ucs4].outline = (int[...]) { 'e' };
+			if (!hash_test(font.glyphs, ucs4)) {
+				font.glyphs[ucs4] = font.glyphs[first_ucs4(&font)];
+				font.glyphs[ucs4].ucs4 = ucs4;
+				font.glyphs[ucs4].outline = (int[...]) { 'e' };
 			}
-			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			Glyphed::set_glyph(&glyphed, &font.glyphs[ucs4]);
 			return true;
 		case "plus":
 		case "equal":
 			int ucs4 = next_ucs4(&font, atoi(textline.text));
 			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
-			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			Glyphed::set_glyph(&glyphed, &font.glyphs[ucs4]);
 			return true;
 		case "minus":
 		case "underscore":
 			int ucs4 = prev_ucs4(&font, atoi(textline.text));
 			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
-			Glyphed::set_glyph(&glyphed, &font[ucs4]);
+			Glyphed::set_glyph(&glyphed, &font.glyphs[ucs4]);
 			return true;
 		case "Tab":
 			set_key_focus(&nichrome, &glyphed);
@@ -1853,15 +2046,15 @@ void main () {
 	void load_callback (&widget_t widget, bool state) {
 		Textline::textline_t textline = filename;
 		twixt(file f = File::open(textline.text, "r"); File::close(f)) {
-			font = read_font(f);
-			Glyphed::set_glyph(&glyphed, &font[first_ucs4(&font)]);
+			font = read_font_stf(f);
+			Glyphed::set_font(&glyphed, &font);
 		}
 	}
 
 	void save_callback (&widget_t widget, bool state) {
 		Textline::textline_t textline = filename;
 		twixt(file f = File::open(textline.text, "w"); File::close(f)) {
-			print_font(f, &font);
+			print_font_stf(f, &font);
 		}
 	}
 
@@ -1903,8 +2096,8 @@ void main () {
 			else
 				ucs4 = atoi(textline.text);
 			Textline::set_text(&textline, sprintf("0x%02x", ucs4));
-			if (hash_test(font, ucs4)) {
-				Glyphed::paste(&glyphed, &font[ucs4]);
+			if (hash_test(font.glyphs, ucs4)) {
+				Glyphed::paste(&glyphed, &font.glyphs[ucs4]);
 			}
 			return true;
 		case "Tab":

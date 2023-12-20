@@ -348,7 +348,7 @@ class MeasureDraw(Draw):
         )
         ps = s.decompose(self.tolerance)
         for p in ps[:-1]:
-            self.smudge_point(p.x, p.y)
+            self.point(p.x, p.y)
         self.draw(ps[-1].x, ps[-1].y)
 
 UCS_PAGE_SHIFT = 8
@@ -379,8 +379,6 @@ class TextMetrics:
     width: float
     ascent: float
     descent: float
-    font_ascent: float
-    font_descent: float
 
     def __init__(
         self,
@@ -389,26 +387,20 @@ class TextMetrics:
         width: float = 0,
         ascent: float = 0,
         descent: float = 0,
-        font_ascent: float = 0,
-        font_descent: float = 0,
     ):
         self.left_side_bearing = left_side_bearing
         self.right_side_bearing = right_side_bearing
         self.width = width
         self.ascent = ascent
         self.descent = descent
-        self.font_ascent = font_ascent
-        self.font_descent = font_descent
 
     def __str__(self):
-        return "l %f r %f w %f a %f d %f Fa %f Fd %f" % (
+        return "l %f r %f w %f a %f d %f" % (
             self.left_side_bearing,
             self.right_side_bearing,
             self.width,
             self.ascent,
             self.descent,
-            self.font_ascent,
-            self.font_descent,
         )
 
     def copy(self):
@@ -417,14 +409,21 @@ class TextMetrics:
             right_side_bearing = self.right_side_bearing,
             width = self.width,
             ascent = self.ascent,
-            descent = self.descent,
-            font_ascent = self.font_ascent,
-            font_descent = self.font_descent)
+            descent = self.descent)
 
 svg_ns:str = '{http://www.w3.org/2000/svg}'
 
 def svg_tag(tag: str) -> str:
     return svg_ns + tag
+
+def chkfloat(f: float):
+    i = int(f)
+    if i == f:
+        return i
+    return f
+
+def strtonum(s: str):
+    return chkfloat(float(s))
 
 class Glyph:
     ucs4: int
@@ -507,20 +506,22 @@ class Glyph:
             measure_calls.max_y = 0
 
         return TextMetrics(
-            left_side_bearing = measure_calls.min_x,
-            right_side_bearing = measure_calls.max_x,
+            left_side_bearing = chkfloat(math.floor(measure_calls.min_x)),
+            right_side_bearing = chkfloat(math.ceil(measure_calls.max_x)),
             width = width,
-            ascent = -measure_calls.min_y,
-            descent = measure_calls.max_y)
+            ascent = -chkfloat(math.floor(measure_calls.min_y)),
+            descent = chkfloat(math.ceil(measure_calls.max_y)))
 
 class Font:
     name: str
     style: str
+    metadata: tuple[str,...]
     glyphs: dict[int, Glyph]
-    space: int
-    ascent: int
-    descent: int
-    height: int
+    ascent: float
+    descent: float
+    units_per_em: float
+    x_height: float
+    cap_height: float
 
     def __init__(self, units_per_em = 64):
         self.glyphs = {}
@@ -577,27 +578,31 @@ class Font:
                 ret = m.copy()
                 started = True
             x += m.width
-        ret.font_ascent = self.ascent
-        ret.font_descent = self.descent
         return ret
 
     def set_svg_face(self, element):
         for name, value in sorted(element.items()):
             if name == 'ascent':
-                self.ascent = float(value)
+                self.ascent = strtonum(value)
             elif name == 'descent':
-                self.descent = abs(float(value))
+                self.descent = abs(strtonum(value))
             elif name == 'font-family':
                 self.name = value
             elif name == 'units-per-em':
-                self.units_per_em = float(value)
+                self.units_per_em = strtonum(value)
+            elif name == 'x-height':
+                self.x_height = strtonum(value)
+            elif name == 'cap-height':
+                self.cap_height = strtonum(value)
+            elif name == 'font-style':
+                self.style = value
 
     def add_svg_glyph(self, element, missing) -> float:
         if missing:
             ucs4 = 0
         else:
             ucs4 = ord(element.get('unicode'))
-        width = float(element.get('horiz-adv-x'))
+        width = strtonum(element.get('horiz-adv-x'))
         cur_x = 0
         cur_y = 0
         mov_x = 0
@@ -608,21 +613,21 @@ class Font:
             path = parse_path(path_string)
             for p in path:
                 if p.start.real != cur_x or p.start.imag != cur_y:
-                    outline += ('m', p.start.real, -p.start.imag)
+                    outline += ('m', chkfloat(p.start.real), chkfloat(-p.start.imag))
                     mov_x = p.start.real
                     mov_y = p.start.imag
                 if isinstance(p, Move):
                     pass
                 elif isinstance(p, Line):
-                    outline += ('l', p.end.real, -p.end.imag)
+                    outline += ('l', chkfloat(p.end.real), chkfloat(-p.end.imag))
                 elif isinstance(p, CubicBezier):
                     outline += ('c',
-                                      p.control1.real, -p.control1.imag,
-                                      p.control2.real, -p.control2.imag,
-                                      p.end.real, -p.end.imag)
+                                chkfloat(p.control1.real), chkfloat(-p.control1.imag),
+                                chkfloat(p.control2.real), chkfloat(-p.control2.imag),
+                                chkfloat(p.end.real), chkfloat(-p.end.imag))
                 elif isinstance(p, Close):
                     if cur_x != mov_x or cur_y != mov_y:
-                        outline += ('l', mov_x, mov_y)
+                        outline += ('l', chkfloat(mov_x), chkfloat(mov_y))
                 cur_x = p.end.real
                 cur_y = p.end.imag
         
@@ -632,22 +637,36 @@ class Font:
 
         return width
 
+    def dump_stf(self, file) -> None:
+        d = self.__dict__.copy()
+        glyphs = d["glyphs"]
+        d["glyphs"] = tuple([glyphs[k] for k in glyphs])
+        json.dump(d, file, sort_keys=True, indent="\t", default=lambda o: o.__dict__)
+
     @classmethod
     def parse_svg_font(cls, node_list):
+        metadata = ()
+        font = None
         for node in node_list:
             if etree.iselement(node):
                 if node.tag == svg_tag('defs'):
-                    return Font.parse_svg_font(node)
+                    font = Font.parse_svg_font(node)
                 elif node.tag == svg_tag('font'):
                     font = Font()
                     for element in node:
                         if element.tag == svg_tag('font-face'):
                             font.set_svg_face(element)
                         elif element.tag == svg_tag('missing-glyph'):
-                            font.space = font.add_svg_glyph(element, True)
+                            font.add_svg_glyph(element, True)
                         elif element.tag == svg_tag('glyph'):
                             font.add_svg_glyph(element, False)
-                    return font
+                    break
+                elif node.tag == svg_tag('metadata'):
+                    metadata = node.text.strip('\n').splitlines()
+        if font is not None:
+            font.metadata = metadata
+        return font
+                
                     
     @classmethod
     def svg_font(cls, filename: str, values: Values) -> Font:
@@ -859,8 +878,8 @@ class GCode(Draw):
         metrics = self.font.text_metrics(s)
 
         if self.values.font_metrics:
-            ascent = metrics.font_ascent
-            descent = metrics.font_descent
+            ascent = self.font.ascent
+            descent = self.font.descent
             text_x: float = 0;
             text_width = metrics.width
         else:
@@ -991,6 +1010,9 @@ def Args():
                         default=None)
     parser.add_argument('-C', '--config-dir', action='append',
                         help='Directory containing device configuration files')
+    parser.add_argument('--dump-stf', action='store',
+                        help='Dump font in STF format',
+                        default=None)
     parser.add_argument('file', nargs='*',
                         help='Text source files')
     args = parser.parse_args()
@@ -1082,6 +1104,12 @@ def main():
     device = Device(values)
 
     font = Font.svg_font(values.font, values)
+
+    if args.dump_stf:
+        with open(args.dump_stf, "w") as file:
+            font.dump_stf(file)
+            print('', file=file)
+        sys.exit(0)
 
     rect_gen = get_rect(values)
     line_gen = get_line(values)

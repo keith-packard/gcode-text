@@ -1,2 +1,2 @@
 #!/bin/sh
-python3 ./gcode_text.py -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,2800,6 charset --font-height --align=left "$@"
+python3 ./gcode_text.py -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,2800,6 charset --font-metrics --align=left "$@"

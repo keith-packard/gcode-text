@@ -15,30 +15,63 @@ the Free Software Foundation, either version 2 of the License, or
 
 ## Usage
 
-	gcode-text: usage: gcode-text <options> [--] file ...
-	    -V,--version		Print version and exit
-	    -i,--inch			Use inch units
-	    -m,--mm			Use millimeter units
-	    -r,--rect			Draw bounding rectangles
-	    -O,--oblique		Draw the glyphs using a sheer transform
-	    -f,--flatness <flatness>	Spline decomposition tolerance
-	    -s,--speed <speed>		Feed rate
-	    -t,--template <template>	Template file name
-	    -d,--device <device-file>   Device config file
-	    -S,--settings <value,...>   Device-specific settings values
-	    -o,--output <output>	Output file name
-	    -b,--border <border>	Border width
-	    -x,--start-x <start-x>	Starting X for boxes
-	    -y,--start-y <start-y>	Starting Y for boxes
-	    -w,--width <width>		Box width
-	    -h,--height <height>	Box height
-	    -X,--delta-x <delta-x>	X offset between boxes
-	    -Y,--delta-y <delta-y>	Y offset between boxes
-	    -c,--columns <columns>	Number of columns of boxes
-	    -v,--value <value>		Initial text numeric value
-	    -n,--number <number>	Number of numeric values
-	    -T,--text <string>		Text string
-	    -C,--config-dir <dir>	Directory containing device configuration files
+	usage: gcode-text [--help] [-V] [-i] [-m] [-r] [-O] [--tesselate] [--sheer SHEER] [-f FLATNESS]
+			  [--font FONT] [-s SPEED] [-t TEMPLATE] [-d DEVICE] [-S SETTINGS] [-o OUTPUT]
+			  [-b BORDER] [-x START_X] [-y START_Y] [-w WIDTH] [-h HEIGHT] [-X DELTA_X]
+			  [-Y DELTA_Y] [-c COLUMNS] [-v VALUE] [-n NUMBER] [-T TEXT]
+			  [-a {left,right,center}] [--font-height] [-C CONFIG_DIR]
+			  [file ...]
+
+	positional arguments:
+	  file                  Text source files
+
+	options:
+	  --help                Print usage and exit
+	  -V, --version         Print version and exit
+	  -i, --inch            Use inch units
+	  -m, --mm              Use millimeter units
+	  -r, --rect            Draw bounding rectangles
+	  -O, --oblique         Draw the glyphs using a sheer transform
+	  --tesselate           Force tesselation of splines
+	  --sheer SHEER         Oblique sheer amount
+	  -f FLATNESS, --flatness FLATNESS
+				Spline decomposition tolerance
+	  --font FONT           SVG font file name
+	  -s SPEED, --speed SPEED
+				Feed rate
+	  -t TEMPLATE, --template TEMPLATE
+				Template file name
+	  -d DEVICE, --device DEVICE
+				Device config file
+	  -S SETTINGS, --settings SETTINGS
+				Device-specific settings values
+	  -o OUTPUT, --output OUTPUT
+				Output file name
+	  -b BORDER, --border BORDER
+				Border width
+	  -x START_X, --start-x START_X
+				Starting X for boxes
+	  -y START_Y, --start-y START_Y
+				Starting Y for boxes
+	  -w WIDTH, --width WIDTH
+				Box width
+	  -h HEIGHT, --height HEIGHT
+				Box height
+	  -X DELTA_X, --delta-x DELTA_X
+				X offset between boxes
+	  -Y DELTA_Y, --delta-y DELTA_Y
+				Y offset between boxes
+	  -c COLUMNS, --columns COLUMNS
+				Number of columns of boxes
+	  -v VALUE, --value VALUE
+				Initial text numeric value
+	  -n NUMBER, --number NUMBER
+				Number of numeric values
+	  -T TEXT, --text TEXT  Text string
+	  -a {left,right,center}, --align {left,right,center}
+	  --font-height         Use font metrics for strings instead of glyph metrics
+	  -C CONFIG_DIR, --config-dir CONFIG_DIR
+				Directory containing device configuration files
 
 ## Examples
 

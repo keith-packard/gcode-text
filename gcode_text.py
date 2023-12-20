@@ -861,7 +861,7 @@ class GCode(Draw):
         if self.values.font_height:
             ascent = metrics.font_ascent
             descent = metrics.font_descent
-            text_x = 0;
+            text_x: float = 0;
             text_width = metrics.width
         else:
             ascent = metrics.ascent

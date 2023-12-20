@@ -1019,6 +1019,9 @@ def load_template(template_file, values):
     elif isinstance(template, dict):
         values.handle_dict(template)
 
+    if values.rects is None:
+        return
+
     if not isinstance(values.rects, list):
         print('template rects is not an array', file=sys.stderr)
         raise TypeError

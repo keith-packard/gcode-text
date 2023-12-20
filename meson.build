@@ -35,7 +35,7 @@ python_exe = configure_file(input: 'gcode_text.py',
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
 
-nickle_exe = configure_file(input: 'edit-font.5c',
+nickle_exe = configure_file(input: 'gcode-edit-font.5c',
 			    output: 'gcode-edit-font',
 			    configuration: dirs_data,
 			    install_mode: 'rwxr-xr-x',

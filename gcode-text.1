@@ -5,13 +5,15 @@ gcode-text \- render text as gcode
 gcode-text [options] [input files] ...
 .SH DESCRIPTION
 .PP
-\fIGcode-text\fP renders stroked text to gcode, using glyphs
-originally derived from the Hershey fonts. Each line of text is
+\fIGcode-text\fP renders stroked text to gcode. Each line of text is
 rendered to separate rectangle, where rectangles may be defined
 using a template or parametrically on the command line.
 .PP
 The source text may come from text files or from command line
 arguments.
+.PP
+The provided font, Twin Sans, uses glyphs originally derived from the
+Hershey fonts.
 .SH USAGE
 .PP
 An un-flagged argument is treated as an input file.
@@ -24,27 +26,33 @@ Print a help/usage message and exit.
 .BI "-V,--version"
 Prints the version number and immediately exits.
 .TP
-.BI "-i,--inch "
+.BI "-i,--inch"
 Use inch units in the generated file. This is the default.
 .TP
 .BI "-m,--mm"
 Use millimeter units in the generated file.
 .TP
+.BI "-r,--rect"
+Draw bounding rectangles
+.TP
 .BI "-O,--oblique"
-Add a slight sheer transform in X.
+Draw the glyphs using a sheer transform
 .TP
 .BI "--tesselate"
 Tesselate splines even when the output device supports them natively.
+.TP
+.BI "--sheer " sheer
+Set the sheer amount for oblique glyphs.
 .TP
 .BI "-f,--flatness " flatness
 Set the spline decomposition tolerance in output units. The default is
 0.001.
 .TP
+.BI "--font " SVG-font-file
+Specify the filename of the font to draw with. Default is TwinSans.svg.
+.TP
 .BI "-s,--speed " speed
 Set the feed rate
-.TP
-.BI "--sheer " sheer
-Set the amount of sheer for oblique fonts. The default is 0.1
 .TP
 .BI "-t,--template " template
 Specifies a template file. Template files are in JSON format and
@@ -97,8 +105,16 @@ Specifies the number of generated numeric text values
 .BI "-T,--text " string
 Specifies a single line of text
 .TP
+.BI "-a,--align " {left,right,center}
+Specifies the alignment of text within the box.
+.TP
+.BI "--font-metrics
+Use font metrics (font height and string width) instead of ink bounds
+for text layout.
+.TP
 .BI "-C,--config-dir " directory
-Specifies the path to device configuration files.
+Specifies an additional path to device configuration files. This
+argument may be repeated.
 .SH EXAMPLES
 .PP
 Draw "hello world" into a 4"x1" box at 1"x1"
@@ -175,7 +191,6 @@ and the output file is closed.
 .PP
 Here's what the default configuration looks like in JSON form:
 .nf
-
 {
     "start" : "G90\nG17\\n",
     "inch" : "G20\\n",

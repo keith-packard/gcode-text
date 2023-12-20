@@ -69,7 +69,7 @@ the Free Software Foundation, either version 2 of the License, or
 				Number of numeric values
 	  -T TEXT, --text TEXT  Text string
 	  -a {left,right,center}, --align {left,right,center}
-	  --font-height         Use font metrics for strings instead of glyph metrics
+	  --font-metrics        Use font metrics for strings instead of glyph metrics
 	  -C CONFIG_DIR, --config-dir CONFIG_DIR
 				Directory containing device configuration files
 
@@ -103,30 +103,30 @@ Draw the SVG sample below
 
 Draw all of the characters available:
 
-	$ gcode-text -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,2800,6 charset --font-height --align=left
+	$ gcode-text -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,2800,6 charset --font-metrics --align=left
 
 ![charset svg output](https://github.com/keith-packard/gcode-text/raw/main/charset.svg)
 
 Draw some sample text:
 
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-height --align=left -o lorum-roman.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left -o lorum-roman.svg
 
 ![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-roman.svg)
  
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-height --align=left --oblique -o lorum-oblique.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left --oblique -o lorum-oblique.svg
 
 ![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-oblique.svg)
 
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-height --align=left -o lorum-bold.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-metrics --align=left -o lorum-bold.svg
 
 ![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold.svg)
  
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-height --align=left --oblique -o lorum-bold-oblique.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-metrics --align=left --oblique -o lorum-bold-oblique.svg
 
 ![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold-oblique.svg)
  
 Draw the same text using the Hershey Script font from inkscape:
 
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-height --align=left -o lorum-script.svg --font /usr/share/inkscape/extensions/svg_fonts/HersheyScript1.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left -o lorum-script.svg --font /usr/share/inkscape/extensions/svg_fonts/HersheyScript1.svg
 
 ![lorum ipsem script output](https://github.com/keith-packard/gcode-text/raw/main/lorum-script.svg)

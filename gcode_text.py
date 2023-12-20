@@ -688,7 +688,7 @@ class Values:
         self.number = 1
         self.text = None
         self.align = 'center'
-        self.font_height = False
+        self.font_metrics = False
         self.config_dir = ["@CONFIG_DIRS@"]
         self.rects = None
         self.file = None
@@ -858,7 +858,7 @@ class GCode(Draw):
 
         metrics = self.font.text_metrics(s)
 
-        if self.values.font_height:
+        if self.values.font_metrics:
             ascent = metrics.font_ascent
             descent = metrics.font_descent
             text_x: float = 0;
@@ -986,7 +986,7 @@ def Args():
     parser.add_argument('-a', '--align', action='store', type=str,
                         choices=['left', 'right', 'center'],
                         default=None)
-    parser.add_argument('--font-height', action='store_true',
+    parser.add_argument('--font-metrics', action='store_true',
                         help='Use font metrics for strings instead of glyph metrics',
                         default=None)
     parser.add_argument('-C', '--config-dir', action='append',

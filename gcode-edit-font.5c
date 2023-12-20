@@ -28,6 +28,7 @@ autoload ParseArgs;
 autoload Sort;
 
 string glyph_list_name = "glyphlist.txt";
+string font_name = "Frutiger LT Std-12";
 
 typedef struct {
 	int	left_side_bearing;
@@ -640,7 +641,7 @@ extend namespace Nichrome {
 		{
 			string s = sprintf("%c", glyphed.glyph.ucs4);
 			twixt(save(cr); restore(cr)) {
-				set_font(cr, "Frutiger LT Std-12");
+				set_font(cr, font_name);
 				set_source_rgba(cr, 0, 0, 0, 0.15);
 				text_extents_t ma = text_extents(cr, "I");
 
@@ -1692,6 +1693,13 @@ ParseArgs::argdesc argd = {
 			.name = "svg",
 			.expr_name = "svg",
 			.desc = "Target for font in SVG format"
+		},
+		{
+			.var = { .arg_string = &font_name },
+			.abbr = 'f',
+			.name = "font",
+			.expr_name = "font",
+			.desc = "Font name to draw under each glyph"
 		},
 		{
 			.var = { .arg_string = &glyph_list_name },

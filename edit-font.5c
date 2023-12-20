@@ -1514,7 +1514,8 @@ void print_glyph_svg (file f, &glyph_t glyph)
 
 	switch (glyph.ucs4) {
 	case 0:
-		return;
+		charname = "missing";
+		break;
 	case '&':
 		charname = "&amp;";
 		break;
@@ -1533,9 +1534,13 @@ void print_glyph_svg (file f, &glyph_t glyph)
 			charname = sprintf("&#x%x;", glyph.ucs4);
 		break;
 	}
-	File::fprintf(f, "<glyph unicode=\"%s\"", charname);
-	if (hash_test(svg_names, glyph.ucs4))
-		File::fprintf(f, " glyph-name=\"%s\"", svg_names[glyph.ucs4]);
+	if (glyph.ucs4 == 0)
+		File::fprintf(f, "<missing-glyph");
+	else {
+		File::fprintf(f, "<glyph unicode=\"%s\"", charname);
+		if (hash_test(svg_names, glyph.ucs4))
+			File::fprintf(f, " glyph-name=\"%s\"", svg_names[glyph.ucs4]);
+	}
 	File::fprintf(f, " horiz-adv-x=\"%f\"", svg_value(metrics.width));
 
 	const int font_ascent = 50;
@@ -1603,7 +1608,6 @@ void print_font_svg (file f, &glyph_t[int] font)
 	File::fprintf(f, "cap-height=\"%f\"\n", svg_value(cap_height));
 	File::fprintf(f, "x-height=\"%f\"\n", svg_value(x_height));
 	File::fprintf(f, "/>\n");
-	File::fprintf(f, "<missing-glyph horiz-adv-x=\"%f\" />\n", svg_value(missing_glyph));
 
 	int[...] keys = hash_keys(font);
 

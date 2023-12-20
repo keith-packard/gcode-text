@@ -1081,14 +1081,14 @@ def main():
 
     device = Device(values)
 
-    output = sys.stdout
-    if args.output != '-':
-        output = open(args.output, "w")
-
     font = Font.svg_font(values.font, values)
 
     rect_gen = get_rect(values)
     line_gen = get_line(values)
+
+    output = sys.stdout
+    if args.output != '-':
+        output = open(args.output, "w")
 
     gcode = GCode(output, device, values, font)
     gcode.start()

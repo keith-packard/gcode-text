@@ -41,11 +41,12 @@ nickle_exe = configure_file(input: 'edit-font.5c',
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
 
-font_filename = 'twin-sans.svg'
+font_filename = 'TwinSans.svg'
+font_source = 'TwinSans.stf'
 
 twin_sans_svg = custom_target(font_filename,
 			      output: font_filename,
-			      input: 'font',
+			      input: font_source,
 			      command: [nickle, nickle_exe,
 					'--glyphlist', '@CURRENT_SOURCE_DIR@' / 'glyphlist.txt',
 					'--svg', '@OUTPUT@', '@INPUT@'
@@ -80,7 +81,7 @@ template_files = [
 install_data(template_files)
 
 font_files = [
-  'font',
+  font_source,
   ]
 
 install_data(font_files)

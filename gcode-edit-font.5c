@@ -32,19 +32,19 @@ string glyph_list_name = "glyphlist.txt";
 string font_name = "Frutiger LT Std-12";
 
 typedef struct {
-	int	left_side_bearing;
-	int	right_side_bearing;
-	int	width;
-	int	ascent;
-	int	descent;
+	real	left_side_bearing;
+	real	right_side_bearing;
+	real	width;
+	real	ascent;
+	real	descent;
 } metrics_t;
 
 typedef struct {
 	int		ucs4;
 	metrics_t	metrics;
-	int[...]	snap_x;
-	int[...]	snap_y;
-	int[...]	outline;
+	real[...]	snap_x;
+	real[...]	snap_y;
+	real[...]	outline;
 } glyph_t;
 
 typedef struct {
@@ -258,7 +258,7 @@ glyph_path(&glyph_t glyph, &draw_calls_t calls)
 
 	x1 = y1 = 0;
 
-	int value() { return glyph.outline[offset++]; }
+	real value() { return glyph.outline[offset++]; }
 
 	for (;;) {
 		if (!is_uninit(&calls.offset))
@@ -372,7 +372,7 @@ public metrics_t measure_ink(&glyph_t glyph)
 	};
 }
 
-void print_outline(file f, &int[...] outline)
+void print_outline(file f, &real[...] outline)
 {
 	int offset = 0;
 	bool done = false;
@@ -398,7 +398,7 @@ void print_outline(file f, &int[...] outline)
 			count = 0;
 		}
 		for (int i = 0; i < count; i++)
-			File::fprintf(f, " %d,", outline[offset++]);
+			File::fprintf(f, " %f,", outline[offset++]);
 		File::fprintf(f, "\n");
 	}
 }
@@ -407,7 +407,7 @@ void print_glyph(file f, &glyph_t glyph)
 {
 	&metrics_t metrics = &glyph.metrics;
 	File::fprintf(f, "   0x%02x, # '%c'\n", glyph.ucs4, glyph.ucs4);
-	File::fprintf(f, "    %d, %d, %d, %d, %d, %d, %d,\n",
+	File::fprintf(f, "    %f, %f, %f, %f, %f, %d, %d,\n",
 		      metrics.left_side_bearing,
 		      metrics.right_side_bearing,
 		      metrics.width,
@@ -417,29 +417,29 @@ void print_glyph(file f, &glyph_t glyph)
 		      dim(glyph.snap_y));
 	File::fprintf(f, "   ");
 	for (int i = 0; i < dim(glyph.snap_x); i++)
-		File::fprintf(f, " %d,", glyph.snap_x[i]);
+		File::fprintf(f, " %f,", glyph.snap_x[i]);
 	File::fprintf(f, " #  snap_x\n");
 	File::fprintf(f, "   ");
 	for (int i = 0; i < dim(glyph.snap_y); i++)
-		File::fprintf(f, " %d,", glyph.snap_y[i]);
+		File::fprintf(f, " %f,", glyph.snap_y[i]);
 	File::fprintf(f, " #  snap_y\n");
 	print_outline(f, &glyph.outline);
 }
 
-int[...] parse_line(string line)
+real[...] parse_line(string line)
 {
-	int[...] elts = {};
+	real[...] elts = {};
 	line = String::split(line, "#")[0];
 	string[*] bits = String::parse_csv(line);
 	for (int i = 0; i < dim (bits); i++) {
 		if (String::length(bits[i]) == 0)
 			continue;
 		string elt = String::chomp(bits[i]);
-		int value = 0;
+		real value = 0;
 		if (elt[0] == '\'')
 			value = elt[1];
 		else
-			value = atoi(elt);
+			value = string_to_real(elt);
 		elts[dim(elts)] = value;
 	}
 	return elts;
@@ -451,7 +451,7 @@ glyph_t read_glyph(file f)
 	int ucs4 = parse_line(ucs_line)[0];
 
 	string metrics_line = File::fgets(f);
-	int[...] metrics_bits = parse_line(metrics_line);
+	real[...] metrics_bits = parse_line(metrics_line);
 
 	bool has_width = (dim(metrics_bits) == 7);
 
@@ -469,20 +469,20 @@ glyph_t read_glyph(file f)
 	int n_snap_y = metrics_bits[5 + after_width];
 
 	string snap_x_line = File::fgets(f);
-	int[...] snap_x = parse_line(snap_x_line);
+	real[...] snap_x = parse_line(snap_x_line);
 
 	string snap_y_line = File::fgets(f);
-	int[...] snap_y = parse_line(snap_y_line);
+	real[...] snap_y = parse_line(snap_y_line);
 
 	bool done = false;
-	int[...] outline = {};
+	real[...] outline = {};
 
 	while(!done) {
 		string line = File::fgets(f);
 		string[*] bits = String::parse_csv(line);
-		int[...] add = parse_line(line);
+		real[...] add = parse_line(line);
 		if (dim(add) > 0)
-			outline = (int[dim(outline) + dim(add)]) { [i] = i < dim(outline) ? outline[i] : add[i-dim(outline)] };
+			outline = (real[dim(outline) + dim(add)]) { [i] = i < dim(outline) ? outline[i] : add[i-dim(outline)] };
 		if (add[0] == 'e')
 			done = true;
 	}
@@ -521,6 +521,8 @@ extend namespace Nichrome {
 			rgba_color_t	baseline;
 			&font_t		font;
 			&glyph_t	glyph;
+			real		step_size;
+			bool		shift;
 			int		start_coord;
 			int		end_coord;
 			int		max_coord;
@@ -967,7 +969,7 @@ extend namespace Nichrome {
 			rectangle(cr, 0, 0, glyphed.geometry.width, glyphed.geometry.height);
 		}
 
-		*int get_ref(&glyphed_t glyphed, int coord, bool y)
+		*real get_ref(&glyphed_t glyphed, int coord, bool y)
 		{
 			switch (coord) {
 			case lsb_coord:
@@ -1008,7 +1010,7 @@ extend namespace Nichrome {
 				};
 		}
 
-		void step_coord(&glyphed_t glyphed, int step, bool y)
+		void step_coord(&glyphed_t glyphed, real step, bool y)
 		{
 			coord_range_t range = coord_range(&glyphed);
 			for (int coord = range.first; coord <= range.last; coord++) {
@@ -1066,8 +1068,8 @@ extend namespace Nichrome {
 			if (prev_type == 'e')
 				prev_space = 0;
 
-			int x = 0;
-			int y = 0;
+			real x = 0;
+			real y = 0;
 
 			spot += prev_space;
 
@@ -1076,7 +1078,7 @@ extend namespace Nichrome {
 				y = glyph.outline[spot-1];
 			}
 
-			int contents(int i) {
+			real contents(int i) {
 				if (i < spot)
 					return glyph.outline[i];
 				if (i == spot)
@@ -1088,7 +1090,7 @@ extend namespace Nichrome {
 				return glyph.outline[i-this_space];
 			}
 
-			int[...] new_outline = (int[dim(glyph.outline) + this_space]) { [i] = contents(i) };
+			real[...] new_outline = (real[dim(glyph.outline) + this_space]) { [i] = contents(i) };
 
 			if (glyphed.start_coord < 0)
 				glyphed.start_coord = 0;
@@ -1110,7 +1112,7 @@ extend namespace Nichrome {
 			return coord - dist;
 		}
 
-		int[...] delete_element(int[...]outline, int element)
+		real[...] delete_element(real[...]outline, int element)
 		{
 			int type = outline[element];
 			if (type == 'e')
@@ -1133,17 +1135,17 @@ extend namespace Nichrome {
 			if (space > dim(outline))
 				return outline;
 
-			int contents(int i) {
+			real contents(int i) {
 				if (i < element)
 					return outline[i];
 				return outline[i+space];
 			}
 
-			return (int[dim(outline) - space]) { [i] = contents(i) };
+			return (real[dim(outline) - space]) { [i] = contents(i) };
 		}
 
-		int[...] insert_element(int[...] outline, int element, int[...] insert) {
-			int contents(int i) {
+		real[...] insert_element(real[...] outline, int element, real[...] insert) {
+			real contents(int i) {
 				if (i < element)
 					return outline[i];
 				if (i < element + dim(insert))
@@ -1151,7 +1153,7 @@ extend namespace Nichrome {
 				return outline[i - dim(insert)];
 			}
 
-			return (int[dim(outline) + dim(insert)]) { [i] = contents(i) };
+			return (real[dim(outline) + dim(insert)]) { [i] = contents(i) };
 		}
 
 		void delete(&glyphed_t glyphed) {
@@ -1160,7 +1162,7 @@ extend namespace Nichrome {
 			coord_range_t range = coord_range(&glyphed);
 
 			int coord = range.last;
-			int[...] outline = glyph.outline;
+			real[...] outline = glyph.outline;
 			while (coord >= range.first)
 			{
 				coord = first_coord(&glyphed, coord);
@@ -1172,51 +1174,9 @@ extend namespace Nichrome {
 				coord--;
 			}
 			if (outline[0] != 'm' && outline[0] != 'e')
-				outline = insert_element(outline, 0, (int[3]) { 'm', 0, 0 });
+				outline = insert_element(outline, 0, (real[3]) { 'm', 0, 0 });
 
 			glyph.outline = outline;
-		}
-
-		void shift(&glyphed_t glyphed, int dx, int dy) {
-			&glyph_t glyph = &glyphed.glyph;
-
-			int cur_offset = 0;
-
-			void shift(int coord) {
-				glyph.outline[cur_offset + 1 + coord * 2] += dx;
-				glyph.outline[cur_offset + 2 + coord * 2] += dy;
-			}
-
-			void shift_offset(int offset)
-			{
-				cur_offset = offset;
-			}
-
-			void shift_move(real x, real y)
-			{
-				shift(0);
-			}
-
-			void shift_line(real x, real y)
-			{
-				shift(0);
-			}
-
-			void shift_curve(real x1, real y1, real x2, real y2, real x3, real y3)
-			{
-				shift(0);
-				shift(1);
-				shift(2);
-			}
-
-			draw_calls_t shift_calls = {
-				.move = shift_move,
-				.line = shift_line,
-				.curve = shift_curve,
-				.offset = shift_offset,
-			};
-
-			glyph_path(&glyph, &shift_calls);
 		}
 
 		public void scale(&glyphed_t glyphed, real scale_x, real scale_y) {
@@ -1269,7 +1229,7 @@ extend namespace Nichrome {
 		public void paste(&glyphed_t glyphed, &glyph_t new_glyph)
 		{
 			&glyph_t glyph = &glyphed.glyph;
-			int[...] new_outline = {};
+			real[...] new_outline = {};
 
 			/* skip the 'e' at the end */
 			for (int i = 0; i < dim(glyph.outline) - 1; i++)
@@ -1297,27 +1257,34 @@ extend namespace Nichrome {
 		}
 
 		void key(&glyphed_t glyphed, &key_event_t key) {
+			switch (key.key) {
+			case "Shift_L":
+			case "Shift_R":
+				glyphed.shift = (key.type == key_type_t.press);
+				return;
+			}
 			if (key.type != key_type_t.press)
 				return;
 			if (!is_uninit(&glyphed.key_callback))
 				if (glyphed.key_callback(&glyphed, key.key))
 					return;
 			bool redraw = false;
+			real step = glyphed.shift ? 0.1 : 1;
 			switch (key.key) {
 			case "Left":
-				step_coord(&glyphed, -1, false);
+				step_coord(&glyphed, -step, false);
 				redraw = true;
 				break;
 			case "Right":
-				step_coord(&glyphed, 1, false);
+				step_coord(&glyphed, step, false);
 				redraw = true;
 				break;
 			case "Up":
-				step_coord(&glyphed, -1, true);
+				step_coord(&glyphed, -step, true);
 				redraw = true;
 				break;
 			case "Down":
-				step_coord(&glyphed, 1, true);
+				step_coord(&glyphed, step, true);
 				redraw = true;
 				break;
 			case "plus":
@@ -1375,22 +1342,6 @@ extend namespace Nichrome {
 				scale(&glyphed, 1, -1);
 				redraw = true;
 				break;
-			case "bracketleft":
-				shift(&glyphed, -1, 0);
-				redraw = true;
-				break;
-			case "bracketright":
-				shift(&glyphed, 1, 0);
-				redraw = true;
-				break;
-			case "braceleft":
-				shift(&glyphed, 0, -1);
-				redraw = true;
-				break;
-			case "braceright":
-				shift(&glyphed, 0, 1);
-				redraw = true;
-				break;
 			case "i":
 				set_ink(&glyphed);
 				redraw = true;
@@ -1424,6 +1375,8 @@ extend namespace Nichrome {
 			glyphed.key = key;
 			glyphed.button = button;
 			glyphed.line_width = 2;
+			glyphed.step_size = 1;
+			glyphed.shift = false;
 
 			glyphed.grid = (rgba_color_t) {
 				red = 0.5, green = 0.5, blue = 0.5, alpha = 1,
@@ -1611,20 +1564,29 @@ get_json(&poly[string] json, string key, poly def)
 	return def;
 }
 
+real glyph_scale = 1;
+real glyph_round = 0.1;
+
+real
+coord(real coord)
+{
+	return floor(coord * glyph_scale / glyph_round + 0.5) * glyph_round;
+}
+
 metrics_t json_to_metrics(real[string] metrics_json)
 {
 	return (metrics_t) {
-		.left_side_bearing = metrics_json["left_side_bearing"],
-		.right_side_bearing = metrics_json["right_side_bearing"],
-		.width = metrics_json["width"],
-		.ascent = metrics_json["ascent"],
-		.descent = metrics_json["descent"],
+		.left_side_bearing = coord(metrics_json["left_side_bearing"]),
+		.right_side_bearing = coord(metrics_json["right_side_bearing"]),
+		.width = coord(metrics_json["width"]),
+		.ascent = coord(metrics_json["ascent"]),
+		.descent = coord(metrics_json["descent"])
 	};
 }
 
 real[...] json_to_outline(poly[...] outline_json)
 {
-	return (real[dim(outline_json)]) { [i] = is_string(outline_json[i]) ? outline_json[i][0] : outline_json[i] };
+	return (real[dim(outline_json)]) { [i] = is_string(outline_json[i]) ? outline_json[i][0] : coord(outline_json[i]) };
 }
 
 glyph_t json_to_glyph(poly[string] glyph_json)
@@ -1656,11 +1618,11 @@ read_font_stf(file f) {
 	font.name = get_json(&font_json, "name", "unknown");
 	font.style = get_json(&font_json, "style", "all");
 	font.metadata = get_json(&font_json, "metadata", (string[...]) {});
-	font.units_per_em = get_json(&font_json, "units_per_em", 64);
-	font.ascent = get_json(&font_json, "ascent", 0);
-	font.descent = get_json(&font_json, "descent", 0);
-	font.cap_height = get_json(&font_json, "cap_height", 0);
-	font.x_height = get_json(&font_json, "x_height", 0);
+	font.units_per_em = coord(get_json(&font_json, "units_per_em", 64));
+	font.ascent = coord(get_json(&font_json, "ascent", 0));
+	font.descent = coord(get_json(&font_json, "descent", 0));
+	font.cap_height = coord(get_json(&font_json, "cap_height", 0));
+	font.x_height = coord(get_json(&font_json, "x_height", 0));
 	font.glyphs = json_to_glyphs(font_json["glyphs"]);
 	return font;
 }
@@ -1888,6 +1850,18 @@ ParseArgs::argdesc argd = {
 			.desc = "Font name to draw under each glyph"
 		},
 		{
+			.var = { .arg_real = &glyph_scale },
+			.name = "scale",
+			.expr_name = "scale",
+			.desc = "Scale factor when reading glyphs"
+		},
+		{
+			.var = { .arg_real = &glyph_round },
+			.name = "round",
+			.expr_name = "round",
+			.desc = "Round coords to the nearest multiple of this"
+		},
+		{
 			.var = { .arg_string = &glyph_list_name },
 			.abbr = 'g',
 			.name = "glyphlist",
@@ -2014,7 +1988,7 @@ void main () {
 			if (!hash_test(font.glyphs, ucs4)) {
 				font.glyphs[ucs4] = font.glyphs[first_ucs4(&font)];
 				font.glyphs[ucs4].ucs4 = ucs4;
-				font.glyphs[ucs4].outline = (int[...]) { 'e' };
+				font.glyphs[ucs4].outline = (real[...]) { 'e' };
 			}
 			Glyphed::set_glyph(&glyphed, &font.glyphs[ucs4]);
 			return true;

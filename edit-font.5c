@@ -22,8 +22,11 @@ autoload Nichrome::Box;
 autoload Nichrome::Label;
 autoload Nichrome::Button;
 autoload Nichrome::Textline;
+autoload ParseArgs;
 
 autoload Sort;
+
+string glyph_list_name = "glyphlist.txt";
 
 typedef struct {
 	int	left_side_bearing;
@@ -1596,7 +1599,7 @@ void print_glyph_svg (file f, &glyph_t glyph)
 
 void print_font_svg (file f, &glyph_t[int] font)
 {
-	load_svg_names("../agl-aglfn/glyphlist.txt");
+	load_svg_names(glyph_list_name);
 
 	for (int i = 0; i < dim(svg_header); i++) {
 		File::fprintf(f, "%s\n", svg_header[i]);
@@ -1669,17 +1672,69 @@ prev_ucs4 (&glyph_t[int] font, int ucs4)
 	return keys[0];
 }
 
+string project_version = "@VERSION@";
+string svg_output_name;
+bool version = false;
+int user_argind;
+
+ParseArgs::argdesc argd = {
+	.args = {
+		{
+			.var = { .arg_flag = &version },
+			.abbr = 'V',
+			.name = "version",
+			.desc = "Print version and exit"
+		},
+		{
+			.var = { .arg_string = &svg_output_name },
+			.abbr = 's',
+			.name = "svg",
+			.expr_name = "svg",
+			.desc = "Target for font in SVG format"
+		},
+		{
+			.var = { .arg_string = &glyph_list_name },
+			.abbr = 'g',
+			.name = "glyphlist",
+			.expr_name = "glyphlist",
+			.desc = "Name of glyph list file"
+		},
+	},
+	.unknown = &user_argind
+};
+
 void main () {
 	string initial_filename = "";
+
+	ParseArgs::parseargs(&argd, &argv);
+
+	if (version) {
+		printf("%s %s\n", argv[0], project_version);
+		exit(0);
+	}
+
+	if (is_uninit(&user_argind))
+		user_argind = dim(argv);
+	string[] rest = (string[dim(argv) - user_argind]) { [i] = argv[i+user_argind] };
+	argv = rest;
 
 	glyph_t[int] font = { sample_glyph.ucs4 => sample_glyph };
 
 	&nichrome_t		nichrome = new ("Glyph Editor", 0, 0);
 
-	if (dim(argv) > 1) {
-		initial_filename = argv[1];
+	printf("dim(argv) %d\n", dim(argv));
+	if (dim(argv) > 0) {
+		initial_filename = argv[0];
 		twixt(file f = File::open(initial_filename, "r"); File::close(f))
 			font = read_font(f);
+	}
+
+	if (!is_uninit(&svg_output_name))
+	{
+		twixt(file f = File::open(svg_output_name, "w"); File::close(f)) {
+			print_font_svg(f, &font);
+		}
+		exit(0);
 	}
 
 	&widget_t	ucs4name;

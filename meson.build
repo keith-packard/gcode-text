@@ -20,6 +20,8 @@ project('gcode-text',
 	version: '0.5'
        )
 
+fs = import('fs')
+
 share_dir = get_option('prefix') / get_option('datadir') / meson.project_name()
 
 dirs_data = configuration_data()
@@ -58,18 +60,26 @@ nickle_exe = configure_file(input: 'gcode-edit-font.5c',
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
 
-font_filename = 'TwinSans.svg'
-font_source = 'TwinSans.stf'
+fonts = [
+  'TwinSans.stf',
+  'TwinScript.stf',
+  ]
 
-twin_sans_svg = custom_target(font_filename,
-			      output: font_filename,
-			      input: font_source,
+foreach font : fonts
+  font_svg = fs.replace_suffix(font, '.svg')
+  font_target = custom_target(font_svg,
+			      output: font_svg,
+			      input: font,
 			      command: [nickle, nickle_exe,
 					'--glyphlist', '@CURRENT_SOURCE_DIR@' / 'glyphlist.txt',
 					'--svg', '@OUTPUT@', '@INPUT@'
 				       ],
 			      install: true,
 			      install_dir: share_dir)
+  if font == 'TwinSans.stf'
+    twin_sans_svg = font_target
+  endif
+endforeach
 
 test('mypy',
      mypy,
@@ -98,8 +108,4 @@ template_files = [
 
 install_data(template_files)
 
-font_files = [
-  font_source,
-  ]
-
-install_data(font_files)
+install_data(fonts)

@@ -125,8 +125,8 @@ Draw some sample text:
 
 ![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold-oblique.svg)
  
-Draw the same text using the Hershey Script font from inkscape:
+Draw the same text using the Twin Script font:
 
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left -o lorum-script.svg --font /usr/share/inkscape/extensions/svg_fonts/HersheyScript1.svg
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,1 lorum --font-metrics --align=left -o lorum-script.svg --font TwinScript.svg
 
 ![lorum ipsem script output](https://github.com/keith-packard/gcode-text/raw/main/lorum-script.svg)

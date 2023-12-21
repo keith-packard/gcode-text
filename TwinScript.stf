@@ -1,7 +1,7 @@
 {
-	"ascent": 50,
+	"ascent": 40,
 	"cap_height": 32,
-	"descent": 14,
+	"descent": 15,
 	"glyphs": [
 		{
 			"metrics": {
@@ -15547,6 +15547,6 @@
 	],
 	"name": "Twin Script",
 	"style": "all",
-	"units_per_em": 64,
+	"units_per_em": 55,
 	"x_height": 17
 }

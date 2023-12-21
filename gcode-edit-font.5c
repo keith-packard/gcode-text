@@ -1005,9 +1005,9 @@ extend namespace Nichrome {
 
 			translate(cr, off_x, off_y);
 			scale(cr, delta_x, delta_y);
-			draw_bounds(cr, &glyphed);
 			draw_char(cr, &glyphed);
 			draw_glyph(cr, &glyphed);
+			draw_bounds(cr, &glyphed);
 			draw_grid(cr, &glyphed);
 			move_to(cr, -100, -100);
 			line_to(cr, -90, -90);
@@ -1435,18 +1435,24 @@ extend namespace Nichrome {
 			real dx = outline[this_offset] - outline[root_offset];
 			real dy = outline[this_offset+1] - outline[root_offset+1];
 
-			real factor = gcd(floor(abs(dx * 10)), floor(abs(dy * 10)));
+			real step_x;
+			real step_y;
 
-			real step_x = dx / factor;
-			real step_y = dy / factor;
+			if (dx == 0) {
+				step_x = 0.0;
+				step_y = 0.1;
+			} else if (dy == 0) {
+				step_x = 0.1;
+				step_y = 0.0;
+			} else {
+				real factor = gcd(floor(abs(dx * 10)), floor(abs(dy * 10)));
+
+				step_x = dx / factor;
+				step_y = dy / factor;
+			}
 
 			real new_x = outline[this_offset] + dir * step_x;
 			real new_y = outline[this_offset+1] + dir * step_y;
-
-			printf("factor %f step %f,%f point %f,%f -> %f,%f\n",
-			       factor, step_x, step_y,
-			       outline[this_offset], outline[this_offset+1],
-			       new_x, new_y);
 
 			outline[this_offset] = new_x;
 			outline[this_offset+1] = new_y;
@@ -1501,7 +1507,6 @@ extend namespace Nichrome {
 				glyphed.end_coord = glyphed.start_coord;
 				int test_offset = coord_to_offset(&glyphed, glyphed.end_coord);
 				int test_coord = offset_to_coord(&glyphed, test_offset);
-				printf("coord %d offset %d offset_to_coord %d\n", glyphed.end_coord, test_offset, test_coord);
 				redraw = true;
 				break;
 			case "underscore":
@@ -1589,7 +1594,7 @@ extend namespace Nichrome {
 			glyphed.print = print;
 			glyphed.key = key;
 			glyphed.button = button;
-			glyphed.line_width = 2;
+			glyphed.line_width = .2;
 			glyphed.step_size = 1;
 			glyphed.shift = false;
 

@@ -246,6 +246,16 @@ spline_t[...] decompose(*spline_t spline, real tolerance)
 	return (spline_t[dim(s1a) + dim(s2a)]) { [i] = i < dim(s1a) ? s1a[i] : s2a[i - dim(s1a)] };
 }
 
+
+real glyph_scale = 1;
+real glyph_round = 0.1;
+
+real
+coord(real coord)
+{
+	return floor(coord * glyph_scale / glyph_round + 0.5) * glyph_round;
+}
+
 /*
  * Draw a glyph using the provide callbacks.
  */
@@ -1238,6 +1248,8 @@ extend namespace Nichrome {
 				outline = insert_element(outline, 0, (real[3]) { 'm', 0, 0 });
 
 			glyph.outline = outline;
+			glyphed.start_coord = range.first;
+			glyphed.end_coord = glyphed.start_coord;
 		}
 
 		public void scale(&glyphed_t glyphed, real scale_x, real scale_y) {
@@ -1246,10 +1258,10 @@ extend namespace Nichrome {
 			int cur_offset = 0;
 			int cur_coord = 0;
 
-			void scale(int coord) {
+			void scale(int c) {
 				if (is_selected(&glyphed, cur_coord, 1)) {
-					glyph.outline[cur_offset + 1 + coord * 2] = floor(glyph.outline[cur_offset + 1 + coord * 2] * scale_x + 0.5);
-					glyph.outline[cur_offset + 2 + coord * 2] = floor(glyph.outline[cur_offset + 2 + coord * 2] * scale_y + 0.5);
+					glyph.outline[cur_offset + 1 + c * 2] = coord(glyph.outline[cur_offset + 1 + c * 2] * scale_x);
+					glyph.outline[cur_offset + 2 + c * 2] = coord(glyph.outline[cur_offset + 2 + c * 2] * scale_y);
 				}
 				cur_coord++;
 			}
@@ -1309,8 +1321,9 @@ extend namespace Nichrome {
 
 			int last_offset = dim(new_outline);
 
-			if (range.last >= 0) {
-				int last_element = coord_to_element(&glyphed, range.last);
+			int last_element = coord_to_element(&glyphed, range.last);
+
+			if (last_element >= 0) {
 				/* append rest of original bits */
 				for (int i = last_element; i < dim(glyph.outline); i++)
 					new_outline[dim(new_outline)] = glyph.outline[i];
@@ -1501,7 +1514,8 @@ extend namespace Nichrome {
 				redraw = true;
 				break;
 			case "equal":
-				glyphed.start_coord++;
+				coord_range_t range = coord_range(&glyphed);
+				glyphed.start_coord = range.last + 1;
 				if (glyphed.start_coord == glyphed.max_coord)
 					glyphed.start_coord = min_coord;
 				glyphed.end_coord = glyphed.start_coord;
@@ -1514,6 +1528,8 @@ extend namespace Nichrome {
 				redraw = true;
 				break;
 			case "minus":
+				coord_range_t range = coord_range(&glyphed);
+				glyphed.start_coord = range.first;
 				if (glyphed.start_coord == min_coord)
 					glyphed.start_coord = glyphed.max_coord;
 				glyphed.start_coord--;
@@ -1788,16 +1804,6 @@ get_json(&poly[string] json, string key, poly def)
 		return json[key];
 	return def;
 }
-
-real glyph_scale = 1;
-real glyph_round = 0.1;
-
-real
-coord(real coord)
-{
-	return floor(coord * glyph_scale / glyph_round + 0.5) * glyph_round;
-}
-
 metrics_t json_to_metrics(real[string] metrics_json)
 {
 	return (metrics_t) {

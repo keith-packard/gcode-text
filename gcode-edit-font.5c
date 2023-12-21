@@ -505,11 +505,14 @@ extend namespace Nichrome {
 
 		protected typedef bool (&widget_t widget, string key) key_callback_t;
 
-		protected typedef void (&widget_t widget, string key) info_callback_t;
+		protected typedef void (&widget_t widget, string message) info_callback_t;
+
+		protected typedef void (&widget_t widget, string message) error_callback_t;
 
 		public typedef widget_t + struct {
 			key_callback_t	key_callback;
 			info_callback_t	info_callback;
+			error_callback_t error_callback; 
 			rgba_color_t	path;
 			rgba_color_t	stroke;
 			rgba_color_t	highlight;
@@ -523,6 +526,7 @@ extend namespace Nichrome {
 			&glyph_t	glyph;
 			real		step_size;
 			bool		shift;
+			bool		changed;
 			int		start_coord;
 			int		end_coord;
 			int		max_coord;
@@ -541,6 +545,11 @@ extend namespace Nichrome {
 		void info(&glyphed_t glyphed, string format, args...) {
 			if (!is_uninit(&glyphed.info_callback))
 				glyphed.info_callback(&glyphed, sprintf(format, args...));
+		}
+
+		void error(&glyphed_t glyphed, string format, args...) {
+			if (!is_uninit(&glyphed.error_callback))
+				glyphed.error_callback(&glyphed, sprintf(format, args...));
 		}
 
 		bool has_focus(&glyphed_t glyphed) {
@@ -563,6 +572,52 @@ extend namespace Nichrome {
 			default:
 				return "???";
 			}
+		}
+
+		int offset_to_coord(&glyphed_t glyphed, int dest_offset)
+		{
+			int dest_coord = -1;
+			int cur_coord = 0;
+			int cur_offset;
+
+			void coord_offset(int offset)
+			{
+				cur_offset = offset;
+			}
+
+			void check_coord(int o)
+			{
+				int coord_offset = cur_offset + 1 + 2 * o;
+				if (coord_offset >= dest_offset && dest_coord == -1)
+					dest_coord = cur_coord;
+				cur_coord++;
+			}
+
+			void coord_move(real x, real y)
+			{
+				check_coord(0);
+			}
+
+			void coord_line(real x, real y)
+			{
+				check_coord(0);
+			}
+
+			void coord_curve(real x1, real y1, real x2, real y2, real x3, real y3)
+			{
+				for (int i = 0; i < 3; i++)
+					check_coord(i);
+			}
+
+			draw_calls_t coord_calls = {
+				.move = coord_move,
+				.line = coord_line,
+				.curve = coord_curve,
+				.offset = coord_offset
+			};
+
+			glyph_path(&glyphed.glyph, &coord_calls);
+			return dest_coord;
 		}
 
 		/* Convert a coordinate number to the offset of
@@ -689,6 +744,12 @@ extend namespace Nichrome {
 			move_to(cr, x1, y1);
 			line_to(cr, x2, y2);
 			stroke(cr);
+			if (bound == width_coord) {
+				set_source_rgba(cr, glyphed.bounds_high.red, glyphed.bounds_high.green,
+						glyphed.bounds_high.blue, glyphed.bounds_high.alpha);
+				arc(cr, x2, y2, .75, 0, 2 * pi);
+				fill(cr);
+			}
 		}
 
 		void draw_bounds(cairo_t cr, &glyphed_t glyphed)
@@ -1231,25 +1292,167 @@ extend namespace Nichrome {
 			&glyph_t glyph = &glyphed.glyph;
 			real[...] new_outline = {};
 
-			/* skip the 'e' at the end */
-			for (int i = 0; i < dim(glyph.outline) - 1; i++)
-				new_outline[dim(new_outline)] = glyph.outline[i];
+			coord_range_t range = coord_range(&glyphed);
 
-			/* append the new bits */
-			for (int i = 0; i < dim(new_glyph.outline); i++)
+			if (range.first >= 0) {
+				int first_element = coord_to_element(&glyphed, range.first);
+				/* paste in starting bits */
+				for (int i = 0; i < first_element; i++)
+					new_outline[dim(new_outline)] = glyph.outline[i];
+			}
+
+			int first_offset = dim(new_outline);
+
+			/* paste in new bits, skipping 'e' */
+			for (int i = 0; i < dim(new_glyph.outline) - 1; i++)
 				new_outline[dim(new_outline)] = new_glyph.outline[i];
 
-			glyphed.start_coord = max_coord(&glyphed);
+			int last_offset = dim(new_outline);
+
+			if (range.last >= 0) {
+				int last_element = coord_to_element(&glyphed, range.last);
+				/* append rest of original bits */
+				for (int i = last_element; i < dim(glyph.outline); i++)
+					new_outline[dim(new_outline)] = glyph.outline[i];
+			} else {
+				new_outline[dim(new_outline)] = 'e';
+			}
 
 			glyph.outline = new_outline;
-			glyphed.end_coord = max_coord(&glyphed);
 
-			if (glyphed.end_coord > glyphed.start_coord)
-				glyphed.start_coord++;
+			glyphed.start_coord = range.first;
+			glyphed.end_coord = offset_to_coord(&glyphed, last_offset) - 1;
+			if (glyphed.end_coord < glyphed.start_coord)
+				glyphed.end_coord = glyphed.start_coord;
 
 			Widget::redraw(&glyphed);
 		}
 
+
+		public bool mirror_curve(&glyphed_t glyphed)
+		{
+			&glyph_t glyph = &glyphed.glyph;
+
+			coord_range_t range = coord_range(&glyphed);
+
+			if (range.first < 0) {
+				error(&glyphed, "no coords");
+				return false;
+			}
+
+			if (range.first != range.last) {
+				error(&glyphed, "more than one coord");
+				return false;
+			}
+
+			int element = coord_to_element(&glyphed, range.first);
+
+			int this_offset = coord_to_offset(&glyphed, range.first);
+
+			&real[...] outline = &glyph.outline;
+
+			if (outline[element] != 'c') {
+				error(&glyphed, "element is %c", outline[element]);
+				return false;
+			}
+
+			int other_coord;
+			int root_coord;
+
+			if (this_offset == element + 1) {
+				other_coord = range.first - 2;
+				root_coord = range.first - 1;
+			} else if (this_offset == element + 3) {
+				root_coord = range.first + 1;
+				other_coord = range.first + 2;
+			} else {
+				error(&glyphed, "not in middle of curve offset is %d element is %d", this_offset, element);
+				return false;
+			}
+
+			int other_element = coord_to_element(&glyphed, other_coord);
+
+			if (outline[other_element] != 'c') {
+				error(&glyphed, "other element is %c", outline[other_element]);
+				return false;
+			}
+
+			int other_offset = coord_to_offset(&glyphed, other_coord);
+			int root_offset = coord_to_offset(&glyphed, root_coord);
+
+			real dx = outline[other_offset] - outline[root_offset];
+			real dy = outline[other_offset+1] - outline[root_offset+1];
+
+			real new_x = outline[root_offset] - dx;
+			real new_y = outline[root_offset+1] - dy;
+
+			outline[this_offset] = new_x;
+			outline[this_offset+1] = new_y;
+
+			return true;
+		}
+
+		public bool step_aspect(&glyphed_t glyphed, int dir)
+		{
+			&glyph_t glyph = &glyphed.glyph;
+
+			coord_range_t range = coord_range(&glyphed);
+
+			if (range.first < 0) {
+				error(&glyphed, "no coords");
+				return false;
+			}
+
+			if (range.first != range.last) {
+				error(&glyphed, "more than one coord");
+				return false;
+			}
+
+			int element = coord_to_element(&glyphed, range.first);
+
+			int this_offset = coord_to_offset(&glyphed, range.first);
+
+			&real[...] outline = &glyph.outline;
+
+			if (outline[element] != 'c') {
+				error(&glyphed, "element is %c", outline[element]);
+				return false;
+			}
+
+			int root_coord;
+
+			if (this_offset == element + 1) {
+				root_coord = range.first - 1;
+			} else if (this_offset == element + 3) {
+				root_coord = range.first + 1;
+			} else {
+				error(&glyphed, "not in middle of curve offset is %d element is %d", this_offset, element);
+				return false;
+			}
+
+			int root_offset = coord_to_offset(&glyphed, root_coord);
+
+			real dx = outline[this_offset] - outline[root_offset];
+			real dy = outline[this_offset+1] - outline[root_offset+1];
+
+			real factor = gcd(floor(abs(dx * 10)), floor(abs(dy * 10)));
+
+			real step_x = dx / factor;
+			real step_y = dy / factor;
+
+			real new_x = outline[this_offset] + dir * step_x;
+			real new_y = outline[this_offset+1] + dir * step_y;
+
+			printf("factor %f step %f,%f point %f,%f -> %f,%f\n",
+			       factor, step_x, step_y,
+			       outline[this_offset], outline[this_offset+1],
+			       new_x, new_y);
+
+			outline[this_offset] = new_x;
+			outline[this_offset+1] = new_y;
+
+			return true;
+		}
 
 		public void set_ink(&glyphed_t glyphed) {
 			metrics_t metrics = measure_ink(&glyphed.glyph);
@@ -1296,6 +1499,9 @@ extend namespace Nichrome {
 				if (glyphed.start_coord == glyphed.max_coord)
 					glyphed.start_coord = min_coord;
 				glyphed.end_coord = glyphed.start_coord;
+				int test_offset = coord_to_offset(&glyphed, glyphed.end_coord);
+				int test_coord = offset_to_coord(&glyphed, test_offset);
+				printf("coord %d offset %d offset_to_coord %d\n", glyphed.end_coord, test_offset, test_coord);
 				redraw = true;
 				break;
 			case "underscore":
@@ -1348,6 +1554,15 @@ extend namespace Nichrome {
 				break;
 			case "p":
 				print_glyph(stdout, &glyphed.glyph);
+				break;
+			case "M":
+				redraw = mirror_curve(&glyphed);
+				break;
+			case "bracketleft":
+				redraw = step_aspect(&glyphed, -1);
+				break;
+			case "bracketright":
+				redraw = step_aspect(&glyphed, 1);
 				break;
 			case "Shift_L":
 			case "Shift_R":
@@ -1431,11 +1646,15 @@ extend namespace Nichrome {
 			glyphed.info_callback = info_callback;
 		}
 
+		public void set_error_callback(&glyphed_t glyphed, error_callback_t error_callback) {
+			glyphed.error_callback = error_callback;
+		}
+
 		public &glyph_t get_glyph(&glyphed_t glyphed) {
 			return &glyphed.glyph;
 		}
 
-		public *widget_t new(&nichrome_t nichrome, &font_t font, key_callback_t key_callback, info_callback_t info_callback) {
+		public *widget_t new(&nichrome_t nichrome, &font_t font, key_callback_t key_callback, info_callback_t info_callback, error_callback_t error_callback) {
 			&glyphed_t glyphed = &(glyphed_t) {};
 
 			&glyphed.font = &font;
@@ -1443,6 +1662,7 @@ extend namespace Nichrome {
 			set_glyph(&glyphed, &font.glyphs[first_ucs4(&font)]);
 			set_key_callback(&glyphed, key_callback);
 			set_info_callback(&glyphed, info_callback);
+			set_error_callback(&glyphed, error_callback);
 			return &glyphed;
 		}
 	}
@@ -1915,6 +2135,9 @@ void main () {
 
 	&widget_t	ucs4name;
 	&widget_t	infotext = Textline::new(&nichrome, 80);
+	&Textline::textline_t	errortext = Textline::new(&nichrome, 80);
+
+	errortext.color.red = 1;
 
 	void check_ink() {
 		int[...] keys = hash_keys(font.glyphs);
@@ -1949,7 +2172,19 @@ void main () {
 		Textline::set_text(&infotext, info);
 	}
 
-	&Glyphed::glyphed_t	glyphed = Glyphed::new (&nichrome, &font, glyphed_key_callback, glyphed_info_callback);
+	void info(string format, args...) {
+		Textline::set_text(&infotext, sprintf(format, args...));
+	}
+
+	void glyphed_error_callback (&widget_t widget, string message) {
+		Textline::set_text(&errortext, message);
+	}
+
+	void error(string format, args...) {
+		Textline::set_text(&errortext, sprintf(format, args...));
+	}
+
+	&Glyphed::glyphed_t	glyphed = Glyphed::new (&nichrome, &font, glyphed_key_callback, glyphed_info_callback, glyphed_error_callback);
 
 	void exit_callback (&widget_t widget, bool state) {
 		exit(0);
@@ -1964,8 +2199,11 @@ void main () {
 	void svg_callback (&widget_t widget, bool state) {
 		Textline::textline_t svgline = svgname;
 		Textline::textline_t textline = svgname;
-		twixt(file f = File::open(textline.text, "w"); File::close(f)) {
-			print_font_svg(f, &font);
+		try {
+			twixt(file f = File::open(textline.text, "w"); File::close(f))
+				print_font_svg(f, &font);
+		} catch File::open_error(string message, File::error_type type, string filename) {
+			error("%s: %s", filename, message);
 		}
 	}
 
@@ -2019,16 +2257,26 @@ void main () {
 
 	void load_callback (&widget_t widget, bool state) {
 		Textline::textline_t textline = filename;
-		twixt(file f = File::open(textline.text, "r"); File::close(f)) {
-			font = read_font_stf(f);
-			Glyphed::set_font(&glyphed, &font);
+		error("");
+		try {
+			twixt(file f = File::open(textline.text, "r"); File::close(f)) {
+				font = read_font_stf(f);
+				Glyphed::set_font(&glyphed, &font);
+			}
+		} catch File::open_error(string message, File::error_type type, string filename) {
+			error("%s: %s", filename, message);
 		}
 	}
 
 	void save_callback (&widget_t widget, bool state) {
 		Textline::textline_t textline = filename;
-		twixt(file f = File::open(textline.text, "w"); File::close(f)) {
-			print_font_stf(f, &font);
+		error("");
+		try {
+			twixt(file f = File::open(textline.text, "w"); File::close(f)) {
+				print_font_stf(f, &font);
+			}
+		} catch File::open_error(string message, File::error_type type, string filename) {
+			error("%s: %s", filename, message);
 		}
 	}
 
@@ -2042,6 +2290,7 @@ void main () {
 	&Textline::textline_t scaletext = Textline::new(&nichrome, 10);
 
 	bool scale_callback(&widget_t widget, string key) {
+		error("");
 		switch (key) {
 		case "Return":
 			real scale;
@@ -2106,6 +2355,7 @@ void main () {
 	&Box::box_t	vbox = Box::new (Box::dir_t.vertical,
 					 Box::box_item (&hbox),
 					 Box::widget_item(&infotext, 10, 0),
+					 Box::widget_item(&errortext, 10, 0),
 					 Box::box_item (&sbox),
 					 Box::widget_item(&glyphed, 10));
 

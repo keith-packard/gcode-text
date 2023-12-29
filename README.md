@@ -127,6 +127,12 @@ Draw some sample text:
  
 Draw the same text using the Twin Script font:
 
-	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,1 lorum --font-metrics --align=left -o lorum-script.svg --font TwinScript.svg
+	$  gcode-text -d svg.json -x 20 -y 0 -w 760 -h 36 -X 0 -Y 40 --border 0 --settings 800,440,1.5 lorum --font-metrics --align=left -o lorum-script.svg --font TwinScript.svg
 
 ![lorum ipsem script output](https://github.com/keith-packard/gcode-text/raw/main/lorum-script.svg)
+
+Draw the characters in the Twin Script font
+
+	$ gcode-text -d svg.json -x 20 -y 0 -w 760 -h 75 -X 0 -Y 80 --border 0 --settings 800,600,1.5 --font-metrics --align=left -o charset-script.svg --font TwinScript.svg ascii
+
+![script character set](https://github.com/keith-packard/gcode-text/raw/main/charset-script.svg)

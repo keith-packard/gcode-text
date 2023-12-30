@@ -30,8 +30,10 @@ from io import StringIO
 from lxml import etree # type: ignore
 from svg.path import parse_path # type: ignore
 from svg.path import Path, Move, Line, Arc, CubicBezier, QuadraticBezier, Close # type: ignore
+
+sys.path = ['@SHARE_DIR@'] + sys.path
+
 from gcode_draw import *
-from gcode_font import *
 
 class TextValues(Values):
 
@@ -70,8 +72,6 @@ def Args():
                         default=None)
     parser.add_argument('--sheer', action='store', type=float,
                         help='Oblique sheer amount')
-    parser.add_argument('-f', '--flatness', action='store', type=float,
-                        help='Spline decomposition tolerance')
     parser.add_argument('--font', action='store', type=str,
                         help='SVG font file name',
                         default=None)
@@ -185,6 +185,85 @@ def get_line(values):
             for l in f.readlines():
                 yield l.strip()
 
+def text_path(gcode: GCode, m: Matrix, s: str):
+    draw = MatrixDraw(gcode.get_draw(), m)
+    gcode.font.text_path(s, draw)
+
+def text_into_rect(gcode: GCode, r: Rect, s: str, values: TextValues):
+    if gcode.values.rect:
+        gcode.rect(r)
+
+    rect_width = r.bottom_right.x - r.top_left.x - values.border * 2
+    rect_height = r.bottom_right.y - r.top_left.y - values.border * 2
+
+    if rect_width < 0:
+        print("border %f too wide for rectangle %s" % (values.border, r))
+        return
+    if rect_height < 0:
+        print("border %f too tall for rectangle %s" % (values.border, r))
+        return
+
+    metrics = gcode.font.text_metrics(s)
+
+    if values.font_metrics:
+        ascent = gcode.font.ascent
+        descent = gcode.font.descent
+        text_x: float = 0
+        text_width = metrics.width
+    else:
+        ascent = metrics.ascent
+        descent = metrics.descent
+        text_x = metrics.left_side_bearing
+        text_width = metrics.right_side_bearing - metrics.left_side_bearing
+
+    text_height = ascent + descent
+
+    if text_width == 0 or text_height == 0:
+        print("Text is empty")
+        return
+
+    if values.oblique:
+        text_width += text_height * values.sheer
+
+    if text_width / text_height > rect_width / rect_height:
+        scale = rect_width / text_width
+    else:
+        scale = rect_height / text_height
+
+    text_off_y = (rect_height - text_height * scale) / 2
+
+    if values.align == "left":
+        text_off_x: float = 0
+    elif values.align == "center":
+        text_off_x = (rect_width - text_width * scale) / 2
+    else:
+        text_off_x = text_width
+
+    metrics_x_adjust = text_x * scale
+
+    text_off_x = text_off_x - metrics_x_adjust
+
+    text_x = text_off_x + r.top_left.x + values.border
+    text_y = text_off_y + r.top_left.y + values.border
+    text_x_span = text_width * scale
+    text_y_span = text_height * scale
+
+    matrix = Matrix()
+    matrix = matrix.translate(
+        text_off_x + r.top_left.x + values.border,
+        text_off_y + r.top_left.y + values.border,
+    )
+    if values.oblique:
+        matrix = matrix.sheer(-values.sheer, 0)
+
+    matrix = matrix.scale(scale, scale)
+    if gcode.device.y_invert:
+        matrix = matrix.scale(1, -1)
+    else:
+        matrix = matrix.translate(0, ascent)
+
+    text_path(gcode, matrix, s)
+
 def main():
     values = TextValues()
     args = Args()
@@ -221,7 +300,7 @@ def main():
         try:
             rect = next(rect_gen)
             line = next(line_gen)
-            gcode.text_into_rect(rect, line)
+            text_into_rect(gcode, rect, line, values)
         except StopIteration:
             break
 

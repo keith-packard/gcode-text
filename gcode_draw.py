@@ -26,7 +26,6 @@ import csv
 from io import StringIO
 from typing import Any
 
-
 class Values:
     def __init__(self):
         self.inch = True
@@ -35,6 +34,7 @@ class Values:
         self.tesselate = False
         self.sheer = 0.1
         self.flatness = 0.001
+        self.feed = 100
         self.speed = 100
         self.template = None
         self.device = None
@@ -72,7 +72,8 @@ class Device:
     inch: str = "G20\n"
     mm: str = "G21\n"
     move: str = "G00 X%f Y%f\n"
-    speed: bool = True
+    feed: bool = True
+    speed: bool = False
     y_invert: bool = True
     draw: str = "G01 X%f Y%f F%f\n"
     curve: str = ""
@@ -106,6 +107,8 @@ class Device:
                 self.move = value
             elif key == "speed":
                 self.speed = self.bool(value)
+            elif key == "feed":
+                self.feed = self.bool(value)
             elif key == "y-invert":
                 self.y_invert = self.bool(value)
             elif key == "draw":
@@ -147,11 +150,15 @@ class Device:
         parser.add_argument('-m', '--mm', action='store_true',
                             help='Use millimeter units',
                             default=None)
+        parser.add_argument('-f', '--flatness', action='store', type=float,
+                            help='Spline decomposition tolerance')
         parser.add_argument('--tesselate', action='store_true',
                             help='Force tesselation of splines',
                             default=None)
-        parser.add_argument('-s', '--speed', action='store', type=float,
+        parser.add_argument('--feed', action='store', type=float,
                             help='Feed rate')
+        parser.add_argument('--speed', action='store', type=float,
+                            help='Spindle speed')
         parser.add_argument('-d', '--device', action='store',
                             help='Device config file')
         parser.add_argument('-S', '--settings', action='store',
@@ -220,6 +227,13 @@ class Draw:
     ) -> None:
         self.last_x = x3
         self.last_y = y3
+
+    def curve2(self, x: float, y: float, x3: float, y3: float) -> None:
+        x1 = self.last_x + 2 * (x - self.last_x) / 3
+        y1 = self.last_y + 2 * (y - self.last_y) / 3
+        x2 = x3 + 2 * (x - x3) / 3
+        y2 = y3 + 2 * (y - y3) / 3
+        self.curve(x1, y1, x2, y2, x3, y3)
 
     def rect(self, r: Rect) -> None:
         self.move(r.top_left.x, r.top_left.y)
@@ -495,6 +509,8 @@ class MeasureDraw(Draw):
         self.draw(ps[-1].x, ps[-1].y)
 
 
+from gcode_font import *
+
 class GCode(Draw):
     f: Any
     device: Device
@@ -520,23 +536,31 @@ class GCode(Draw):
         else:
             print("%s" % self.device.inch, file=self.f, end="")
 
+    def set_feed(self, feed: float) -> None:
+        self.values.feed = feed
+        
+    def set_speed(self, speed: float) -> None:
+        self.values.speed = speed
+        
+    def extra_params(self):
+        extra = ()
+        if self.device.feed:
+            extra += (self.values.feed,)
+        if self.device.speed:
+            extra += (self.values.speed,)
+        return extra
+
     def move(self, x: float, y: float):
         print(self.device.move % (x, y), file=self.f, end="")
         super().move(x, y)
 
     def draw(self, x: float, y: float):
-        if self.device.speed:
-            s = self.device.draw % (x, y, self.values.speed)
-        else:
-            s = self.device.draw % (x, y)
+        s = self.device.draw % ((x, y) + self.extra_params())
         print(s, file=self.f, end="")
         super().draw(x, y)
 
     def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float):
-        if self.device.speed:
-            s = self.device.curve % (x1, y1, x2, y2, x3, y3, self.values.speed)
-        else:
-            s = self.device.curve % (x1, y1, x2, y2, x3, y3)
+        s = self.device.curve % ((x1, y1, x2, y2, x3, y3) + self.extra_params())
         print(s, file=self.f, end="")
         super().curve(x1, y1, x2, y2, x3, y3)
 
@@ -547,83 +571,4 @@ class GCode(Draw):
         if self.device.curve == "" or self.values.tesselate:
             return LineDraw(self, self.values.flatness)
         return self
-
-    def text_path(self, m: Matrix, s: str):
-        draw = MatrixDraw(self.get_draw(), m)
-        self.font.text_path(s, draw)
-
-    def text_into_rect(self, r: Rect, s: str):
-        if self.values.rect:
-            self.rect(r)
-
-        rect_width = r.bottom_right.x - r.top_left.x - self.values.border * 2
-        rect_height = r.bottom_right.y - r.top_left.y - self.values.border * 2
-
-        if rect_width < 0:
-            print("border %f too wide for rectangle %s" % (self.values.border, r))
-            return
-        if rect_height < 0:
-            print("border %f too tall for rectangle %s" % (self.values.border, r))
-            return
-
-        metrics = self.font.text_metrics(s)
-
-        if self.values.font_metrics:
-            ascent = self.font.ascent
-            descent = self.font.descent
-            text_x: float = 0
-            text_width = metrics.width
-        else:
-            ascent = metrics.ascent
-            descent = metrics.descent
-            text_x = metrics.left_side_bearing
-            text_width = metrics.right_side_bearing - metrics.left_side_bearing
-
-        text_height = ascent + descent
-
-        if text_width == 0 or text_height == 0:
-            print("Text is empty")
-            return
-
-        if self.values.oblique:
-            text_width += text_height * self.values.sheer
-
-        if text_width / text_height > rect_width / rect_height:
-            scale = rect_width / text_width
-        else:
-            scale = rect_height / text_height
-
-        text_off_y = (rect_height - text_height * scale) / 2
-
-        if self.values.align == "left":
-            text_off_x: float = 0
-        elif self.values.align == "center":
-            text_off_x = (rect_width - text_width * scale) / 2
-        else:
-            text_off_x = text_width
-
-        metrics_x_adjust = text_x * scale
-
-        text_off_x = text_off_x - metrics_x_adjust
-
-        text_x = text_off_x + r.top_left.x + self.values.border
-        text_y = text_off_y + r.top_left.y + self.values.border
-        text_x_span = text_width * scale
-        text_y_span = text_height * scale
-
-        matrix = Matrix()
-        matrix = matrix.translate(
-            text_off_x + r.top_left.x + self.values.border,
-            text_off_y + r.top_left.y + self.values.border,
-        )
-        if self.values.oblique:
-            matrix = matrix.sheer(-self.values.sheer, 0)
-
-        matrix = matrix.scale(scale, scale)
-        if self.device.y_invert:
-            matrix = matrix.scale(1, -1)
-        else:
-            matrix = matrix.translate(0, ascent)
-
-        self.text_path(matrix, s)
 

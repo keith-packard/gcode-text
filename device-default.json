@@ -4,7 +4,8 @@
     "inch" : "G20\n",
     "mm" : "G10\n",
     "move" : "G00 X%f Y%f\n",
-    "draw" : "G01 X%f Y%f F%f\n",
+    "draw" : "G01 X%f Y%f F%f S%f\n",
+    "feed" : "true",
     "speed" : "true",
     "y-invert" : "true",
     "stop" : "M30\n"

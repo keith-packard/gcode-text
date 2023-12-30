@@ -348,7 +348,7 @@ class Font:
                 
                     
     @classmethod
-    def svg_font(cls, filename: str, values: TextValues) -> Font:
+    def svg_font(cls, filename: str, values: Values) -> Font:
         with values.config_open(filename) as file:
             parser = etree.XMLParser(remove_comments=True, recover=True, resolve_entities=False)
             try:

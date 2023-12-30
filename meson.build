@@ -40,6 +40,7 @@ foreach config_dir : [share_dir] + font_dir_list
   endif
 endforeach
 
+dirs_data.set('SHARE_DIR', share_dir)
 dirs_data.set('CONFIG_DIRS', config_dirs)
 
 mypy = find_program('mypy')
@@ -48,14 +49,20 @@ python = find_program('python3')
 
 nickle = find_program('nickle')
 
-python_exe = configure_file(input: 'gcode_text.py',
-			    output: 'gcode-text',
+gcode_text = configure_file(input: 'gcode-text.py',
+			    output: '@BASENAME@',
 			    configuration: dirs_data,
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
 
-nickle_exe = configure_file(input: 'gcode-edit-font.5c',
-			    output: 'gcode-edit-font',
+gcode_svg = configure_file(input: 'gcode-svg.py',
+			    output: '@BASENAME@',
+			    configuration: dirs_data,
+			    install_mode: 'rwxr-xr-x',
+			    install_dir: get_option('bindir'))
+
+gcode_edit_font = configure_file(input: 'gcode-edit-font.5c',
+			    output: '@BASENAME@',
 			    configuration: dirs_data,
 			    install_mode: 'rwxr-xr-x',
 			    install_dir: get_option('bindir'))
@@ -70,7 +77,7 @@ foreach font : fonts
   font_target = custom_target(font_svg,
 			      output: font_svg,
 			      input: font,
-			      command: [nickle, nickle_exe,
+			      command: [nickle, gcode_edit_font,
 					'--glyphlist', '@CURRENT_SOURCE_DIR@' / 'glyphlist.txt',
 					'--svg', '@OUTPUT@', '@INPUT@'
 				       ],
@@ -81,18 +88,21 @@ foreach font : fonts
   endif
 endforeach
 
-test('mypy',
-     mypy,
-     args: python_exe
-    )
+foreach py : [gcode_text, gcode_svg]
+  test('mypy',
+       mypy,
+       args: py
+      )
 
-test('python',
-     python,
-     args: [python_exe, '--version']
-    )
+  test('python',
+       python,
+       args: [py, '--version']
+      )
+endforeach
 
 install_man('gcode-text.1')
 install_man('gcode-edit-font.1')
+install_man('gcode-svg.1')
 
 device_files = [
   'device-default.json',
@@ -102,10 +112,28 @@ device_files = [
 
 install_data(device_files)
 
+param_files = [
+  'cut-etch.json',
+  ]
+
+install_data(param_files)
+
 template_files = [
   'sample-template.json',
   ]
 
 install_data(template_files)
+
+python_extra = [
+  'gcode_draw.py',
+  'gcode_font.py',
+  ]
+
+foreach extra : python_extra
+  configure_file(input: extra,
+		 output: extra,
+		 configuration: dirs_data,
+		 install_dir: share_dir)
+endforeach
 
 install_data(fonts)

@@ -259,6 +259,7 @@ def text_into_rect(gcode: GCode, r: Rect, s: str, values: TextValues):
 
     matrix = matrix.scale(scale, scale)
     if gcode.device.y_invert:
+        matrix = matrix.translate(0, descent)
         matrix = matrix.scale(1, -1)
     else:
         matrix = matrix.translate(0, ascent)

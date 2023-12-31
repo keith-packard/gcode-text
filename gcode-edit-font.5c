@@ -2120,8 +2120,6 @@ void main () {
 
 	font_t font = sample_font;
 
-	&nichrome_t		nichrome = new ("Glyph Editor", 0, 0);
-
 	if (dim(argv) > 0) {
 		initial_filename = argv[0];
 		twixt(file f = File::open(initial_filename, "r"); File::close(f))
@@ -2143,6 +2141,8 @@ void main () {
 		}
 		exit(0);
 	}
+
+	&nichrome_t		nichrome = new ("Glyph Editor", 0, 0);
 
 	&widget_t	ucs4name;
 	&widget_t	infotext = Textline::new(&nichrome, 80);

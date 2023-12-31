@@ -38,9 +38,9 @@ class SvgValues(Values):
     def __init__(self):
         super().__init__()
         self.ppi = 96.0
-        self.bounds = (0, 0, 0, 0)
+        self.bounds = Rect(Point(0, 0), Point(0, 0))
 
-    def set_bounds(self, bounds: tuple[float, float, float, float]):
+    def set_bounds(self, bounds: Rect) -> None:
         self.bounds = bounds
 
 class Param:
@@ -48,13 +48,15 @@ class Param:
     color: str
     feed: float
     speed: float
+    passes: int
     name: str
 
-    def __init__(self, order: int, color: str, feed: float, speed: float, name: str):
+    def __init__(self, order: int, color: str, feed: float, speed: float, passes: int, name: str):
         self.order = order
         self.color = color
         self.feed = feed
         self.speed = speed
+        self.passes = passes
         self.name = name
 
 class Params:
@@ -64,8 +66,10 @@ class Params:
 
     def __init__(self, json_file: str, values: SvgValues):
         self.params = {}
-        with values.config_open(json_file) as file:
-            self.set_params(json.load(file), values)
+        self.default = Param(1, "default", 1, 1, 0, "default")
+        if json_file is not None:
+            with values.config_open(json_file) as file:
+                self.set_params(json.load(file), values)
 
     def set_params(self, json, values: SvgValues):
         values.handle_dict(json)
@@ -76,13 +80,15 @@ class Params:
                     color = param['color']
                     feed = param['feed']
                     speed = param['speed']
+                    passes = param['passes']
                     name = param['name']
-                    self.params[color] = Param(order, color, feed, speed, name)
+                    self.params[color] = Param(order, color, feed, speed, passes, name)
             elif key == "default":
                 order = value['order']
                 feed = value['feed']
                 speed = value['speed']
-                self.default = Param(order, "default", feed, speed, "default")
+                passes = value['passes']
+                self.default = Param(order, "default", feed, speed, passes, "default")
 
     def get(self, color: str):
         if not color in self.params:
@@ -94,30 +100,32 @@ def path_to_gcode(gcode: GCode, path: svgelements.Path, param: Param, matrix: Ma
 
     path.approximate_arcs_with_cubics()
 
-    print('path using %s %f %f' % (param.name, param.feed, param.speed))
+    if gcode.values.verbose:
+        print('path using "%s" feed %f speed %f passes %d' % (param.name, param.feed, param.speed, param.passes))
     gcode.set_feed(param.feed)
     gcode.set_speed(param.speed)
 
     draw = MatrixDraw(gcode.get_draw(), matrix)
 
-    for seg in path:
-        if isinstance(seg, svgelements.Move):
-            if seg.end is not None:
-                draw.move(seg.end.x, seg.end.y)
-        elif isinstance(seg, svgelements.Close):
-            start: svgelements.Point = path.first_point
-            draw.draw(start.x, start.y)
-        elif isinstance(seg, svgelements.Line):
-            draw.draw(seg.end.x, seg.end.y)
-        elif isinstance(seg, svgelements.QuadraticBezier):
-            draw.curve2(seg.control.x, seg.control.y,
-                         seg.end.x, seg.end.y)
-        elif isinstance(seg, svgelements.CubicBezier):
-            draw.curve(seg.control1.x, seg.control1.y,
-                       seg.control2.x, seg.control2.y,
-                       seg.end.x, seg.end.y)
-        elif isinstance(seg, svgelements.Arc):
-            print('arc')
+    for i in range(param.passes):
+        for seg in path:
+            if isinstance(seg, svgelements.Move):
+                if seg.end is not None:
+                    draw.move(seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.Close):
+                start: svgelements.Point = path.first_point
+                draw.draw(start.x, start.y)
+            elif isinstance(seg, svgelements.Line):
+                draw.draw(seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.QuadraticBezier):
+                draw.curve2(seg.control.x, seg.control.y,
+                             seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.CubicBezier):
+                draw.curve(seg.control1.x, seg.control1.y,
+                           seg.control2.x, seg.control2.y,
+                           seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.Arc):
+                print('arc')
 
 def Args():
     parser = argparse.ArgumentParser(
@@ -155,10 +163,9 @@ def main():
     if args.config_dir:
         values.config_dir = args.config_dir + values.config_dir
 
-    values.handle_args(args)
+    params = Params(args.params, values)
 
-    if args.params:
-        params = Params(args.params, values)
+    values.handle_args(args)
 
     device = Device(values)
 
@@ -171,9 +178,18 @@ def main():
         with open(filename) as file:
             svgs += (SVG.parse(file),)
 
-    print('computing bounds...')
-    values.set_bounds(svgelements.Group.union_bbox(svgs))
-    print('bounds: %s' % (values.bounds,))
+    bounds = None
+    for svg in svgs:
+        x = svg.implicit_x
+        y = svg.implicit_y
+        w = svg.implicit_width
+        h = svg.implicit_height
+        this_bounds = Rect(Point(x, y), Point(x + w, y + h))
+        if bounds is None:
+            bounds = this_bounds
+        else:
+            bounds = bounds.union(this_bounds)
+    values.set_bounds(bounds)
 
     matrix = Matrix()
 
@@ -184,15 +200,9 @@ def main():
         
     matrix = matrix.scale(units_per_inch / values.ppi, units_per_inch / values.ppi)
 
-    ul = Point(values.bounds[0], values.bounds[1])
-    lr = Point(values.bounds[2], values.bounds[3])
-
     if device.y_invert:
-        matrix = matrix.translate(0, values.bounds[3] + values.bounds[1]);
+        matrix = matrix.translate(0, values.bounds.bottom_right.y + values.bounds.top_left.y);
         matrix = matrix.scale(1, -1)
-
-    print('ul %s -> %s' % (ul, matrix.point(ul)))
-    print('lr %s -> %s' % (lr, matrix.point(lr)))
 
     gcode = GCode(output, device, values, None)
 

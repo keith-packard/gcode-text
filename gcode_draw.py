@@ -39,6 +39,7 @@ class Values:
         self.template = None
         self.device = None
         self.settings = None
+        self.verbose = False
         self.config_dir = ["@CONFIG_DIRS@"]
 
     def handle_dict(self, d):
@@ -144,6 +145,8 @@ class Device:
                             help='Print usage and exit')
         parser.add_argument('-V', '--version', action='store_true',
                             help='Print version and exit')
+        parser.add_argument('--verbose', action='store_true',
+                            help='Print messages during processing')
         parser.add_argument('-i', '--inch', action='store_true',
                             help='Use inch units',
                             default=None)
@@ -204,6 +207,12 @@ class Rect:
             self.top_left.x >= self.bottom_right.x
             or self.top_left.y >= self.bottom_right.y
         )
+
+    def union(self, r: Rect) -> Rect:
+        return Rect(Point(min(self.top_left.x, r.top_left.x),
+                          min(self.top_left.y, r.top_left.y)),
+                    Point(max(self.bottom_right.x, r.bottom_right.x),
+                          max(self.bottom_right.y, r.bottom_right.y)))
 
 
 class Draw:

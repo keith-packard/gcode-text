@@ -31,7 +31,8 @@ from lxml import etree # type: ignore
 from svg.path import parse_path # type: ignore
 from svg.path import Path, Move, Line, Arc, CubicBezier, QuadraticBezier, Close # type: ignore
 
-sys.path = ['@SHARE_DIR@'] + sys.path
+if not os.getenv('GCODE_SKIP_PATH'):
+    sys.path = ['@SHARE_DIR@'] + sys.path
 
 from gcode_draw import *
 

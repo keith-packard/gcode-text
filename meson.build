@@ -88,6 +88,18 @@ foreach font : fonts
   endif
 endforeach
 
+python_env = environment({'PYTHONPATH': meson.build_root(), 'GCODE_SKIP_PATH': 'true'})
+
+gcode_draw = configure_file(input: 'gcode_draw.py',
+			    output: 'gcode_draw.py',
+			    configuration: dirs_data,
+			    install_dir: share_dir)
+
+gcode_font = configure_file(input: 'gcode_font.py',
+			    output: 'gcode_font.py',
+			    configuration: dirs_data,
+			    install_dir: share_dir)
+
 foreach py : [gcode_text, gcode_svg]
   test('mypy',
        mypy,
@@ -96,6 +108,7 @@ foreach py : [gcode_text, gcode_svg]
 
   test('python',
        python,
+       env: python_env,
        args: [py, '--version']
       )
 endforeach
@@ -123,17 +136,5 @@ template_files = [
   ]
 
 install_data(template_files)
-
-python_extra = [
-  'gcode_draw.py',
-  'gcode_font.py',
-  ]
-
-foreach extra : python_extra
-  configure_file(input: extra,
-		 output: extra,
-		 configuration: dirs_data,
-		 install_dir: share_dir)
-endforeach
 
 install_data(fonts)

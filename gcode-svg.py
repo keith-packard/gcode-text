@@ -28,7 +28,8 @@ from typing import Any
 import svgelements # type: ignore
 from svgelements import * # type: ignore
 
-sys.path = ['@SHARE_DIR@'] + sys.path
+if not os.getenv('GCODE_SKIP_PATH'):
+    sys.path = ['@SHARE_DIR@'] + sys.path
 
 from gcode_draw import *
 from gcode_font import *

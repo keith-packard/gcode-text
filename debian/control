@@ -7,11 +7,12 @@ Homepage: https://keithp.com/cgit/gcode-text.git
 Vcs-Git: https://keithp.com/cgit/gcode-text.git
 Vcs-Browser: https://keithp.com/cgit/gcode-text
 Rules-Requires-Root: no
-Build-Depends: debhelper-compat (= 13), meson, mypy
+Build-Depends: debhelper-compat (= 13), meson, mypy, nickle, cairo-5c,
+ dh-python, python3, python3-svgelements, python3-lxml, python3-svg.path
 
 Package: gcode-text
 Architecture: all
-Depends: nickle, ${misc:Depends}
+Depends: nickle, cairo-5c, ${misc:Depends}, ${python3:Depends}
 Description: Render stroked text as gcode
  Generates gcode representing the stroked version of text.
  Text can come from files or be provided on the command line.

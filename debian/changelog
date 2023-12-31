@@ -1,3 +1,14 @@
+gcode-text (0.6-1) unstable; urgency=medium
+
+  * Add gcode-svg
+  * Add script font
+  * Fix text centering in y-invert mode.
+  * Add parametric template support
+  * Lots of font updates
+  * Switch fonts to svg format
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 31 Dec 2023 14:22:55 -0800
+
 gcode-text (0.5-1) unstable; urgency=medium
 
   * Switch to python

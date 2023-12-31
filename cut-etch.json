@@ -1,20 +1,30 @@
 {
     "mm": true,
     "device": "laser-grbl.json",
-    "flatness": 0.1,
+    "flatness": 0.01,
     "params": [
 	{
 	    "order": 1,
 	    "color": "#ff0000",
 	    "feed": 2000,
-	    "speed": 300,
+	    "speed": 200,
+	    "passes": 1,
 	    "name": "stroke etch"
+	},
+	{
+	    "order": 1,
+	    "color": "#800000",
+	    "feed": 2000,
+	    "speed": 500,
+	    "passes": 1,
+	    "name": "stroke etch dark"
 	},
 	{
 	    "order": 2,
 	    "color": "#000000",
-	    "feed": 100,
+	    "feed": 600,
 	    "speed": 1000,
+	    "passes": 4,
 	    "name": "cut"
 	}
     ]

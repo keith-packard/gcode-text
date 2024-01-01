@@ -125,8 +125,8 @@ def Args():
     return args
     
 
-def finite_rects(args):
-    return args.template is not None
+def finite_rects(values):
+    return values.rects is not None
 
 
 def load_template(template_file, values):

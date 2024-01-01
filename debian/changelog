@@ -1,3 +1,9 @@
+gcode-text (0.6-2) unstable; urgency=medium
+
+  * Make python dependencies explicit
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 31 Dec 2023 17:19:32 -0800
+
 gcode-text (0.6-1) unstable; urgency=medium
 
   * Add gcode-svg

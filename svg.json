@@ -7,7 +7,7 @@
     "move" : "M %f %f\n",
     "draw" : "L %f %f\n",
     "curve" : "C %f %f %f %f %f %f\n",
-    "speed" : "false",
+    "feed" : "false",
     "y-invert" : "false",
     "stop" : "\"/>\n</svg>"
 }

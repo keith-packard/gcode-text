@@ -15,30 +15,63 @@ the Free Software Foundation, either version 2 of the License, or
 
 ## Usage
 
-	gcode-text: usage: gcode-text <options> [--] file ...
-	    -V,--version		Print version and exit
-	    -i,--inch			Use inch units
-	    -m,--mm			Use millimeter units
-	    -r,--rect			Draw bounding rectangles
-	    -O,--oblique		Draw the glyphs using a sheer transform
-	    -f,--flatness <flatness>	Spline decomposition tolerance
-	    -s,--speed <speed>		Feed rate
-	    -t,--template <template>	Template file name
-	    -d,--device <device-file>   Device config file
-	    -S,--settings <value,...>   Device-specific settings values
-	    -o,--output <output>	Output file name
-	    -b,--border <border>	Border width
-	    -x,--start-x <start-x>	Starting X for boxes
-	    -y,--start-y <start-y>	Starting Y for boxes
-	    -w,--width <width>		Box width
-	    -h,--height <height>	Box height
-	    -X,--delta-x <delta-x>	X offset between boxes
-	    -Y,--delta-y <delta-y>	Y offset between boxes
-	    -c,--columns <columns>	Number of columns of boxes
-	    -v,--value <value>		Initial text numeric value
-	    -n,--number <number>	Number of numeric values
-	    -T,--text <string>		Text string
-	    -C,--config-dir <dir>	Directory containing device configuration files
+	usage: gcode-text [--help] [-V] [-i] [-m] [-r] [-O] [--tesselate] [--sheer SHEER] [-f FLATNESS]
+			  [--font FONT] [-s SPEED] [-t TEMPLATE] [-d DEVICE] [-S SETTINGS] [-o OUTPUT]
+			  [-b BORDER] [-x START_X] [-y START_Y] [-w WIDTH] [-h HEIGHT] [-X DELTA_X]
+			  [-Y DELTA_Y] [-c COLUMNS] [-v VALUE] [-n NUMBER] [-T TEXT]
+			  [-a {left,right,center}] [--font-height] [-C CONFIG_DIR]
+			  [file ...]
+
+	positional arguments:
+	  file                  Text source files
+
+	options:
+	  --help                Print usage and exit
+	  -V, --version         Print version and exit
+	  -i, --inch            Use inch units
+	  -m, --mm              Use millimeter units
+	  -r, --rect            Draw bounding rectangles
+	  -O, --oblique         Draw the glyphs using a sheer transform
+	  --tesselate           Force tesselation of splines
+	  --sheer SHEER         Oblique sheer amount
+	  -f FLATNESS, --flatness FLATNESS
+				Spline decomposition tolerance
+	  --font FONT           SVG font file name
+	  -s SPEED, --speed SPEED
+				Feed rate
+	  -t TEMPLATE, --template TEMPLATE
+				Template file name
+	  -d DEVICE, --device DEVICE
+				Device config file
+	  -S SETTINGS, --settings SETTINGS
+				Device-specific settings values
+	  -o OUTPUT, --output OUTPUT
+				Output file name
+	  -b BORDER, --border BORDER
+				Border width
+	  -x START_X, --start-x START_X
+				Starting X for boxes
+	  -y START_Y, --start-y START_Y
+				Starting Y for boxes
+	  -w WIDTH, --width WIDTH
+				Box width
+	  -h HEIGHT, --height HEIGHT
+				Box height
+	  -X DELTA_X, --delta-x DELTA_X
+				X offset between boxes
+	  -Y DELTA_Y, --delta-y DELTA_Y
+				Y offset between boxes
+	  -c COLUMNS, --columns COLUMNS
+				Number of columns of boxes
+	  -v VALUE, --value VALUE
+				Initial text numeric value
+	  -n NUMBER, --number NUMBER
+				Number of numeric values
+	  -T TEXT, --text TEXT  Text string
+	  -a {left,right,center}, --align {left,right,center}
+	  --font-metrics        Use font metrics for strings instead of glyph metrics
+	  -C CONFIG_DIR, --config-dir CONFIG_DIR
+				Directory containing device configuration files
 
 ## Examples
 
@@ -58,7 +91,7 @@ border of 0.01" around the text:
 
 Draw the sample below
 
-	$ gcode-text -o gcode-text.gcode -T "Gcode-text" -x 0 -y 0 -w 8 -h 1 -r
+	$ gcode-text -o gcode-text.gcode -T "Gcode-text" -x 0 -y 0 -w 6 -h 1 -r -b 0.1
 
 ![sample gcode output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.png)
  
@@ -67,3 +100,39 @@ Draw the SVG sample below
 	$ gcode-text -o gcode-text.svg -d svg.json -T "Gcode-text (SVG)" -x 0 -y 0 -w 640 -h 100 -b 10 -S "640,100,5"
 
 ![sample svg output](https://github.com/keith-packard/gcode-text/raw/main/gcode-text.svg)
+
+Draw all of the characters available:
+
+	$ gcode-text -d svg.json -x 50 -y 0 -w 1600 -h 100 -X 0 -Y 100 -o charset.svg --settings 1600,2800,6 charset --font-metrics --align=left
+
+![charset svg output](https://github.com/keith-packard/gcode-text/raw/main/charset.svg)
+
+Draw some sample text:
+
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left -o lorum-roman.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-roman.svg)
+ 
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,2 lorum --font-metrics --align=left --oblique -o lorum-oblique.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-oblique.svg)
+
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-metrics --align=left -o lorum-bold.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold.svg)
+ 
+	$ gcode-text -d svg.json -x 5 -y 0 -w 790 -h 24 -X 0 -Y 28 --border 0 --settings 800,352,3 lorum --font-metrics --align=left --oblique -o lorum-bold-oblique.svg
+
+![lorum ipsem output](https://github.com/keith-packard/gcode-text/raw/main/lorum-bold-oblique.svg)
+ 
+Draw the same text using the Twin Script font:
+
+	$  gcode-text -d svg.json -x 20 -y 0 -w 760 -h 36 -X 0 -Y 40 --border 0 --settings 800,440,1.5 lorum --font-metrics --align=left -o lorum-script.svg --font TwinScript.svg
+
+![lorum ipsem script output](https://github.com/keith-packard/gcode-text/raw/main/lorum-script.svg)
+
+Draw the characters in the Twin Script font
+
+	$ gcode-text -d svg.json -x 20 -y 0 -w 760 -h 75 -X 0 -Y 80 --border 0 --settings 800,600,1.5 --font-metrics --align=left -o charset-script.svg --font TwinScript.svg ascii
+
+![script character set](https://github.com/keith-packard/gcode-text/raw/main/charset-script.svg)

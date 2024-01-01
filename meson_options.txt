@@ -1,0 +1,2 @@
+option('font-dirs', type: 'array', value: [],
+       description: 'List of directories to search for existing SVG fonts in')

@@ -1,19 +1,13 @@
 .TH GCODE-TEXT 1
 .SH NAME
-gcode-text \- render text as gcode
+gcode-svg \- render SVG as gcode
 .SH SYNOPSIS
-gcode-text [options] [input files] ...
+gcode-svg [options] [input files] ...
 .SH DESCRIPTION
 .PP
-\fIGcode-text\fP renders stroked text to gcode. Each line of text is
-rendered to separate rectangle, where rectangles may be defined
-using a template or parametrically on the command line.
-.PP
-The source text may come from text files or from command line
-arguments.
-.PP
-The provided font, Twin Sans, uses glyphs originally derived from the
-Hershey fonts.
+\fIGcode-svg\fP renders stroked SVG elements to gcode. Each SVG path is
+drawn using selectable speed and feed values based on a
+color-to-parameter mapping file.
 .SH USAGE
 .PP
 An un-flagged argument is treated as an input file.
@@ -32,12 +26,6 @@ Use inch units in the generated file. This is the default.
 .BI "-m,--mm"
 Use millimeter units in the generated file.
 .TP
-.BI "-r,--rect"
-Draw bounding rectangles
-.TP
-.BI "-O,--oblique"
-Draw the glyphs using a sheer transform
-.TP
 .BI "--tesselate"
 Tesselate splines even when the output device supports them natively.
 .TP
@@ -48,20 +36,12 @@ Set the sheer amount for oblique glyphs.
 Set the spline decomposition tolerance in output units. The default is
 0.001.
 .TP
-.BI "--font " SVG-font-file
-Specify the filename of the font to draw with. Default is TwinSans.svg.
-.TP
 .BI "--feed " feed
 Set the feed rate. Note that this value depends on the units in use.
 .TP
 .BI "--speed " speed
 Set the spindle speed. Nominally in RPM, check your device documentation
 for non-rotating tools to understand what it does.
-.TP
-.BI "-t,--template " template
-Specifies a template file. Template files are in JSON format and
-consist of an array of rectangles, each rectangle is an array of
-four values -- [x, y, width, height].
 .TP
 .BI "-d,--device " device-spec
 Specifies a device file. This is a JSON file containing
@@ -75,68 +55,13 @@ the "settings" and "setting-values" items in the DEVICE SPEC section below.
 .BI "-o,--output " output
 Specifies the output file name.
 .TP
-.BI "-b,--border " border
-Defines the minimum space between text and each bounding
-box. The default is 0.1.
-.TP
-.BI "-x,--start-x " start-x
-Defines the starting X location for parametrically generated boxes.
-.TP
-.BI "-y,--start-y " start-y
-Defines the starting Y location for parametrically generated boxes.
-.TP
-.BI "-w,--width " width
-Defines the width for parametrically generated boxes.
-.TP
-.BI "-h,--height " height
-Defines the height for parametrically generated boxes.
-.TP
-.BI "-X,--delta-x " delta-x
-Defines the X offset between parametrically generated boxes.
-.TP
-.BI "-Y,--delta-y " delta-y
-Defines the Y offset between parametrically generated boxes.
-.TP
-.BI "-c,--columns " columns
-Defines the number of columns of parametrically generated boxes.
-.TP
-.BI "-v,--value " value
-Sets an initial numeric value for generated text.
-.TP
-.BI "-n,--number " number
-Specifies the number of generated numeric text values
-.TP
-.BI "-T,--text " string
-Specifies a single line of text
-.TP
-.BI "-a,--align " {left,right,center}
-Specifies the alignment of text within the box.
-.TP
-.BI "--font-metrics
-Use font metrics (font height and string width) instead of ink bounds
-for text layout.
-.TP
 .BI "-C,--config-dir " directory
 Specifies an additional path to device configuration files. This
 argument may be repeated.
-.SH EXAMPLES
-.PP
-Draw "hello world" into a 4"x1" box at 1"x1"
-.nf
-$ gcode-text -o output.gcode -T "hello world" -w 4 -h 1 -x 1 -y 1
-.fi
-.PP
-Draw numbers starting at 1 using the sample template
-.nf
-$ gcode-text -o output.gcode -v 1 -t sample-template.json
-.fi
-.PP
-Draw 10 numbers from 10232 to 10241 in a 2x5 grid of 0.25"x0.1" boxes
-spaced 4"x1.5" apart and offset by 1.5"x1" from the origin with a
-border of 0.01" around the text:
-.nf
-$ gcode-text -o output.gcode -v 10232 -n 10 -c 2 -x 1.5 -y 1 -w .25 -h .1 -X 4 -Y 1.5 -b 0.01
-.fi
+.TP
+.BI "-p,--params " parameter-file
+Specifies the parameters used during conversion. See the PARAMETERS
+section below
 .SH DEVICE SPEC
 .PP
 This file contains device-specific output customization, providing
@@ -210,11 +135,50 @@ Here's what the default configuration looks like in JSON form:
     "stop" : "M30\\n"
 }
 .fi
+.SH PARAMETER FILE
+.PP
+This (JSON formatted) file contains the mapping from stroke color to
+feed and speed values. This allows you to construct a single SVG file
+containing multiple operations that use different feed and speed
+values. You can also place other configuration values in this file.
+.PP
+The parameter file contains a single JSON dictionary. Any long-form command line
+option may be specified in this file by eliding the leading dashes and
+replacing any other dashes with underscores. There are two additional
+dictionary entries, the "params" entry and the "default" entry. The
+"params" entry is an array of dictionaries, each dictionary contains
+five keys:
+.TP
+.BI "order"
+This number specifies the order in which elements will be drawn. This
+allows the gcode file to draw things in an order different from how
+they appear in the SVG file. You don't have to order things
+sequentially; smaller order elements will be drawn before larger order
+elements.
+.TP
+.BI "color"
+This string specifies the color that this parameter will match in the
+SVG file. Color matching is done by using the string value directly,
+so an RGB value will be encoded as "#rrggbb". There's no slop in this
+value; it must match exactly.
+.TP
+.BI "feed"
+This number specifies the feed rate to use for matching elements. The
+units depend upon the units of the generated gcode file.
+.TP
+.BI "speed"
+This number specifies the spindle RPM to use for matching
+elements. For tools without a spindle, check the documentation to
+understand how this value is used.
+.TP
+.BI "name"
+This string provides a name documenting the intended purpose of the
+parameters. It isn't used by the software at all.
 .SH AUTHOR
-\fIGcode-text\fP is the work of Keith Packard <keithp@keithp.com>.
+\fIGcode-svg\fP is the work of Keith Packard <keithp@keithp.com>.
 .\"
 .PP
-Gcode-text is
+Gcode-svg is
 .br
 Copyright 2023 Keith Packard.
 .PP

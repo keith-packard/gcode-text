@@ -2,7 +2,7 @@
     "start" : "G90\nG17\nG49\nM08\nM04\n",
     "inch" : "G20\n",
     "mm" : "G10\n",
-    "move" : "G00 X%f Y%f\n",
+    "move" : "G00 X%f Y%f F%f\n",
     "draw" : "G01 X%f Y%f F%f S%f\n",
     "speed" : "true",
     "feed" : "true",

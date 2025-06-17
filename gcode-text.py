@@ -49,6 +49,8 @@ class TextValues(Values):
         self.height = 1
         self.delta_x = 4
         self.delta_y = 1
+        self.up = 0
+        self.down = 0.125
         self.columns = 1
         self.value = None
         self.number = 1
@@ -93,6 +95,10 @@ def Args():
                         help='X offset between boxes')
     parser.add_argument('-Y', '--delta-y', action='store', type=float,
                         help='Y offset between boxes')
+    parser.add_argument('--final-x', action='store', type=float,
+                        help='Final X position')
+    parser.add_argument('--final-y', action='store', type=float,
+                        help='Final Y position')
     parser.add_argument('-c', '--columns', action='store', type=int,
                         help='Number of columns of boxes')
     parser.add_argument('-v', '--value', action='store', type=float,
@@ -101,6 +107,10 @@ def Args():
                         help='Number of numeric values')
     parser.add_argument('-T', '--text', action='store',
                         help='Text string')
+    parser.add_argument('--up', action='store', type=float,
+                        help='Pen up Z position')
+    parser.add_argument('--down', action='store', type=float,
+                        help='Pen down Z position')
     parser.add_argument('-a', '--align', action='store', type=str,
                         choices=['left', 'right', 'center'],
                         default=None)

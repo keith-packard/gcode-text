@@ -97,6 +97,18 @@ Defines the X offset between parametrically generated boxes.
 .BI "-Y,--delta-y " delta-y
 Defines the Y offset between parametrically generated boxes.
 .TP
+.BI "--final-x " final-x
+Defines the X coordinate to move after the drawing is finished.
+.TP
+.BI "--final-y " final-y
+Defines the Y coordinate to move after the drawing is finished.
+.TP
+.HI "--down " down-z
+Defines the Z position when drawing strokes, for devices with a Z axis.
+.TP
+.HI "--up " up-z
+Defines the Z position when moving between strokes, for devices with a Z axis.
+.TP
 .BI "-c,--columns " columns
 Defines the number of columns of parametrically generated boxes.
 .TP
@@ -177,6 +189,12 @@ format should contain two to four %f instances, the first is used for the X
 coordinate, the second for Y, followed by an (optional) feed rate and
 (optional) spindle speed.
 .TP
+.HI "z-move " "G00 Z%f F%f S%f\\\\\\\\n"
+Specifies a C-style printf format for moving the tool in the Z
+axis. This
+format should contain one to three %f instances, followed by an
+(optional) feed rate and (optional) spindle speed.
+.TP
 .BI "feed " "true or false"
 Indicates whether the draw element includes a %f required for
 the feed rate.
@@ -184,6 +202,10 @@ the feed rate.
 .BI "speed " "true or false"
 Indicates whether the draw element includes a %f required for
 the spindle speed.
+.TP
+.BI "z-axis" "true or false"
+Indicates whether the machine requires Z-axis motions when
+transitioning between draw and move operations. This is 'false' by default'.
 .TP
 .BI "y-invert " "true or false"
 Indicates whether y values indicate upwards (true) or downwards

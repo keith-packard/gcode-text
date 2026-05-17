@@ -8,16 +8,18 @@
 	    "color": "#ff0000",
 	    "feed": 2000,
 	    "speed": 200,
+	    "step": 0.1,
 	    "passes": 1,
-	    "name": "stroke etch"
+	    "name": "etch"
 	},
 	{
 	    "order": 1,
 	    "color": "#800000",
 	    "feed": 2000,
 	    "speed": 500,
+	    "step": 0.1,
 	    "passes": 1,
-	    "name": "stroke etch dark"
+	    "name": "etch dark"
 	},
 	{
 	    "order": 2,

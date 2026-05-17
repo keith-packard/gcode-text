@@ -35,11 +35,15 @@ class Values:
         self.sheer = 0.1
         self.flatness = 0.001
         self.feed = 100
+        self.z_feed = 100
         self.speed = 100
         self.template = None
         self.device = None
         self.settings = None
         self.verbose = False
+        self.bounds = None
+        self.up = None
+        self.down = None
         self.config_dir = ["@CONFIG_DIRS@"]
 
     def handle_dict(self, d):
@@ -72,10 +76,12 @@ class Device:
     setting_values: list[str] = []
     inch: str = "G20\n"
     mm: str = "G21\n"
-    move: str = "G00 X%f Y%f\n"
+    move: str = "G00 X%f Y%f F%f\n"
     feed: bool = True
     speed: bool = False
     y_invert: bool = True
+    z_axis: bool = False
+    zmove: str = "G00 Z%f F%f\n"
     draw: str = "G01 X%f Y%f F%f\n"
     curve: str = ""
     stop: str = "M30\n"
@@ -104,12 +110,14 @@ class Device:
                 self.inch = self.bool(value)
             elif key == "mm":
                 self.mm = self.bool(value)
+            elif key == "zmove":
+                self.zmove = value
             elif key == "move":
                 self.move = value
             elif key == "speed":
                 self.speed = self.bool(value)
             elif key == "feed":
-                self.feed = self.bool(value)
+                self.draw_feed = self.bool(value)
             elif key == "y-invert":
                 self.y_invert = self.bool(value)
             elif key == "draw":
@@ -118,6 +126,8 @@ class Device:
                 self.curve = value
             elif key == "stop":
                 self.stop = value
+            elif key == "z-axis":
+                self.z_axis = value
 
     def set_json(self, str: str):
         self.set_values(json.loads(str))
@@ -218,10 +228,15 @@ class Rect:
 class Draw:
     last_x: float
     last_y: float
+    last_z: float
 
     def __init__(self) -> None:
         self.last_x = 0
         self.last_y = 0
+        self.last_z = 0
+
+    def zmove(self, z: float) -> None:
+        self.last_z = z
 
     def move(self, x: float, y: float) -> None:
         self.last_x = x
@@ -255,15 +270,21 @@ class Draw:
 class OffsetDraw(Draw):
     offset_x: float
     offset_y: float
+    offset_z: float
     chain: Draw
 
     def __init__(self, chain: Draw) -> None:
         self.offset_x = 0.0
         self.offset_y = 0.0
+        self.offset_z = 0.0
         self.chain = chain
 
     def step(self, offset_x: float, offset_y: float) -> None:
         self.offset_x += offset_x
+
+    def zmove(self, z: float) -> None:
+        self.chain.zmove(z + self.offset_z)
+        super().zmove(z)
 
     def move(self, x: float, y: float) -> None:
         self.chain.move(x + self.offset_x, y + self.offset_y)
@@ -411,6 +432,10 @@ class LineDraw(Draw):
         self.chain = chain
         self.tolerance = tolerance
 
+    def zmove(self, z: float) -> None:
+        self.chain.zmove(z)
+        super().zmove(z)
+
     def move(self, x: float, y: float) -> None:
         self.chain.move(x, y)
         super().move(x, y)
@@ -438,6 +463,10 @@ class MatrixDraw(Draw):
         self.chain = chain
         self.matrix = matrix
 
+    def zmove(self, z: float) -> None:
+        self.chain.zmove(z)
+        super().zmove(z)
+
     def move(self, x: float, y: float) -> None:
         point = self.matrix.point(Point(x, y))
         self.chain.move(point.x, point.y)
@@ -459,6 +488,9 @@ class MatrixDraw(Draw):
 
 
 class DebugDraw(Draw):
+    def zmove(self, z: float) -> None:
+        print("zmove %f" % (z,))
+
     def move(self, x: float, y: float) -> None:
         print("move %f %f" % (x, y))
 
@@ -479,6 +511,7 @@ class MeasureDraw(Draw):
         self.max_y = -1e30
         self.last_x = 0
         self.last_y = 0
+        self.last_z = 0
         self.tolerance = tolerance
 
     def __str__(self) -> str:
@@ -495,6 +528,9 @@ class MeasureDraw(Draw):
         self.min_y = min(self.min_y, y - self.tolerance)
         self.max_x = max(self.max_x, x + self.tolerance)
         self.max_y = max(self.max_y, y + self.tolerance)
+
+    def zmove(self, z: float) -> None:
+        self.last_z = z
 
     def move(self, x: float, y: float) -> None:
         self.last_x = x
@@ -525,6 +561,7 @@ class GCode(Draw):
     device: Device
 
     def __init__(self, f: Any, device: Device, values: Values, font: Font):
+        super().__init__()
         self.f = f
         self.device = device
         self.values = values
@@ -551,25 +588,34 @@ class GCode(Draw):
     def set_speed(self, speed: float) -> None:
         self.values.speed = speed
         
-    def extra_params(self):
+    def extra_params(self, drawing):
         extra = ()
         if self.device.feed:
             extra += (self.values.feed,)
-        if self.device.speed:
+        if drawing and self.device.speed:
             extra += (self.values.speed,)
         return extra
 
+    def zmove(self, z: float):
+        if self.last_z != z and self.device.z_axis:
+            s = self.device.zmove % ((z,) + self.extra_params(True))
+            print(s, file=self.f, end="")
+        super().zmove(z)
+
     def move(self, x: float, y: float):
-        print(self.device.move % (x, y), file=self.f, end="")
+        self.zmove(self.values.up)
+        s = self.device.move % ((x, y) + self.extra_params(False))
+        print(s, file=self.f, end="")
         super().move(x, y)
 
     def draw(self, x: float, y: float):
-        s = self.device.draw % ((x, y) + self.extra_params())
+        self.zmove(self.values.down)
+        s = self.device.draw % ((x, y) + self.extra_params(True))
         print(s, file=self.f, end="")
         super().draw(x, y)
 
     def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float):
-        s = self.device.curve % ((x1, y1, x2, y2, x3, y3) + self.extra_params())
+        s = self.device.curve % ((x1, y1, x2, y2, x3, y3) + self.extra_params(True))
         print(s, file=self.f, end="")
         super().curve(x1, y1, x2, y2, x3, y3)
 

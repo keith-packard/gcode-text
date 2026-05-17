@@ -41,6 +41,7 @@ class Values:
         self.device = None
         self.settings = None
         self.verbose = False
+        self.bounds = None
         self.up = None
         self.down = None
         self.config_dir = ["@CONFIG_DIRS@"]

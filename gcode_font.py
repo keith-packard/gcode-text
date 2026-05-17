@@ -282,10 +282,10 @@ class Font:
         else:
             ucs4 = ord(element.get('unicode'))
         width = strtonum(element.get('horiz-adv-x'))
-        cur_x = 0
-        cur_y = 0
-        mov_x = 0
-        mov_y = 0
+        cur_x = 0.0
+        cur_y = 0.0
+        mov_x = 0.0
+        mov_y = 0.0
         outline: tuple[Any,...] = ()
         path_string = element.get('d')
         if path_string is not None:

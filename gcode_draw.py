@@ -41,6 +41,8 @@ class Values:
         self.device = None
         self.settings = None
         self.verbose = False
+        self.up = None
+        self.down = None
         self.config_dir = ["@CONFIG_DIRS@"]
 
     def handle_dict(self, d):
@@ -73,7 +75,7 @@ class Device:
     setting_values: list[str] = []
     inch: str = "G20\n"
     mm: str = "G21\n"
-    move: str = "G00 X%f Y%f\n"
+    move: str = "G00 X%f Y%f F%f\n"
     feed: bool = True
     speed: bool = False
     y_invert: bool = True

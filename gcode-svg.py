@@ -51,14 +51,16 @@ class Param:
     speed: float
     passes: int
     name: str
+    step: float
 
-    def __init__(self, order: int, color: str, feed: float, speed: float, passes: int, name: str):
+    def __init__(self, order: int, color: str, feed: float, speed: float, passes: int, name: str, step: float):
         self.order = order
         self.color = color
         self.feed = feed
         self.speed = speed
         self.passes = passes
         self.name = name
+        self.step = step
 
 class Params:
 
@@ -67,7 +69,7 @@ class Params:
 
     def __init__(self, json_file: str, values: SvgValues):
         self.params = {}
-        self.default = Param(1, "default", 1, 1, 0, "default")
+        self.default = Param(1, "default", 1, 1, 0, "default", .1)
         if json_file is not None:
             with values.config_open(json_file) as file:
                 self.set_params(json.load(file), values)
@@ -83,13 +85,17 @@ class Params:
                     speed = param['speed']
                     passes = param['passes']
                     name = param['name']
-                    self.params[color] = Param(order, color, feed, speed, passes, name)
+                    if 'step' in param:
+                        step = param['step']
+                    else:
+                        step = .1
+                    self.params[color] = Param(order, color, feed, speed, passes, name, step)
             elif key == "default":
                 order = value['order']
                 feed = value['feed']
                 speed = value['speed']
                 passes = value['passes']
-                self.default = Param(order, "default", feed, speed, passes, "default")
+                self.default = Param(order, "default", feed, speed, passes, "default", .1)
 
     def get(self, color: str):
         if not color in self.params:
@@ -97,9 +103,7 @@ class Params:
             return self.default
         return self.params[color]
 
-def path_to_gcode(gcode: GCode, path: svgelements.Path, param: Param, matrix: Matrix):
-
-    path.approximate_arcs_with_cubics()
+def stroke_to_gcode(gcode: GCode, path: svgelements.Path, param: Param, matrix: Matrix):
 
     if gcode.values.verbose:
         print('path using "%s" feed %f speed %f passes %d' % (param.name, param.feed, param.speed, param.passes))
@@ -114,7 +118,7 @@ def path_to_gcode(gcode: GCode, path: svgelements.Path, param: Param, matrix: Ma
                 if seg.end is not None:
                     draw.move(seg.end.x, seg.end.y)
             elif isinstance(seg, svgelements.Close):
-                start: svgelements.Point = path.first_point
+                start: svgelements.Point = seg.end
                 draw.draw(start.x, start.y)
             elif isinstance(seg, svgelements.Line):
                 draw.draw(seg.end.x, seg.end.y)
@@ -127,6 +131,183 @@ def path_to_gcode(gcode: GCode, path: svgelements.Path, param: Param, matrix: Ma
                            seg.end.x, seg.end.y)
             elif isinstance(seg, svgelements.Arc):
                 print('arc')
+
+class Intercept:
+
+    x: float
+    winding: bool
+
+    def __init__(self, x, winding):
+        self.x = x
+        self.winding = winding
+
+    def __str__(self):
+        return "(%f %r)" % (self.x, self.winding)
+
+    def __lt__(self, other):
+        if self.x < other.x:
+            return True
+        if self.x > other.x:
+            return False
+        if self.winding and not other.winding:
+            return True
+        return False
+
+class Edge:
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+    winding: bool
+
+    def __init__(self, x1, y1, x2, y2):
+        assert (y1 != y2)
+        self.winding = y1 > y2
+        if y1 > y2:
+            t = x1
+            x1 = x2
+            x2 = t
+            t = y1
+            y1 = y2
+            y2 = t
+        self.x1 = x1
+        self.y1 = y1
+        self.x2 = x2
+        self.y2 = y2
+
+    def x(self, y):
+        if y < self.y1 or self.y2 <= y:
+            return None
+
+        y_off = self.y1
+        slope = (self.x2 - self.x1) / (self.y2 - self.y1)
+        x_off = self.x1
+        x = (y - y_off) * slope + x_off
+
+        return Intercept(x, self.winding)
+        
+    def __str__(self):
+        return "(%f %f) (%f %f)" % (self.x1, self.y1, self.x2, self.y2)
+
+    def __lt__(self, other):
+        if self.y1 < other.y1:
+            return True
+        if self.y1 > other.y1:
+            return False
+
+        if self.x1 < other.x1:
+            return True
+        if self.x1 > other.x1:
+            return False
+
+        if self.y2 < other.y2:
+            return True
+        if self.y2 > other.y2:
+            return False
+        
+        if self.x2 < other.x2:
+            return True
+        return False
+
+    def __eq__(self, other):
+        if self.x1 != other.x1:
+            return False
+        if self.y1 != other.y1:
+            return False
+        if self.x2 != other.x2:
+            return False
+        if self.y2 != other.y2:
+            return False
+        return True
+
+class EdgeDraw(Draw):
+
+    edges: list[Edge]
+
+    def __init__(self):
+        super().__init__()
+        self.edges = []
+
+    def start(self):
+        print("EdgeDraw start")
+        pass
+
+    def draw(self, x: float, y: float):
+        if y != self.last_y:
+            edge = Edge(x, y, self.last_x, self.last_y)
+            self.edges += [edge]
+        super().draw(x, y)
+
+    def spans(self, y):
+        xs = []
+        for edge in self.edges:
+            x = edge.x(y)
+            if x is not None:
+                xs += [x]
+        xs.sort()
+        return xs
+
+def scan_to_gcode(gcode: GCode, paths: list[svgelements.Path], param: Param, matrix: Matrix):
+    
+    edge_draw = EdgeDraw()
+
+    line_draw = LineDraw(edge_draw, gcode.values.flatness)
+
+    edraw = MatrixDraw(line_draw, matrix)
+
+    for path in paths:
+        for seg in path:
+            if isinstance(seg, svgelements.Move):
+                if seg.end is not None:
+                    edraw.move(seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.Close):
+                start: svgelements.Point = seg.end
+                edraw.draw(start.x, start.y)
+            elif isinstance(seg, svgelements.Line):
+                edraw.draw(seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.QuadraticBezier):
+                edraw.curve2(seg.control.x, seg.control.y,
+                             seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.CubicBezier):
+                edraw.curve(seg.control1.x, seg.control1.y,
+                           seg.control2.x, seg.control2.y,
+                           seg.end.x, seg.end.y)
+            elif isinstance(seg, svgelements.Arc):
+                print('arc')
+            else:
+                print('skipping %r' % seg)
+        
+
+    if gcode.values.verbose:
+        print('path using "%s" feed %f speed %f passes %d step %f' % (param.name, param.feed, param.speed, param.passes, param.step))
+    gcode.set_feed(param.feed)
+    gcode.set_speed(param.speed)
+
+    draw = gcode.get_draw()
+
+    values = gcode.values
+
+    bounds = values.bounds
+
+    for i in range(param.passes):
+        y = values.bounds.top_left.y
+        while y <= bounds.bottom_right.y:
+            spans = edge_draw.spans(y)
+            if spans:
+                spans.sort()
+                winding = 0
+                x = 0
+                for span in spans:
+                    if winding != 0 and x != span.x:
+                        draw.move(x, y)
+                        draw.draw(span.x, y)
+                    x = span.x
+                    if span.winding:
+                        winding += 1
+                    else:
+                        winding -= 1
+            y = y + param.step
 
 def Args():
     parser = argparse.ArgumentParser(
@@ -209,22 +390,39 @@ def main():
 
     gcode.start()
 
-    paths=[]
+    strokes=[]
+    fills={}
+    
     for svg in svgs:
         for e in svg.elements():
             stroke = e.values['stroke']
+            fill = e.values['fill']
             if (isinstance(e, svgelements.Rect) or
                 isinstance(e, svgelements.Circle) or
                 isinstance(e, svgelements.Ellipse)):
                 e = svgelements.Path(e.segments())
-            if isinstance(e, svgelements.Path):
-                param = params.get(stroke)
-                paths += [(e, param)]
-    
-    paths.sort(key = key_svg_entry)
 
-    for p in paths:
-        path_to_gcode(gcode, p[0], p[1], matrix)
+            if isinstance(e, svgelements.Path):
+                e.approximate_arcs_with_cubics()
+                if stroke != 'none':
+                    param = params.get(stroke)
+                    strokes += [(e, param)]
+                if fill != 'none':
+                    param = params.get(fill)
+                    if param in fills:
+                        fills[param] += [e]
+                    else:
+                        fills[param] = [e]
+    
+    strokes.sort(key = key_svg_entry)
+
+    for stroke in strokes:
+        stroke_to_gcode(gcode, stroke[0], stroke[1], matrix)
+
+    if fills:
+        for param in fills:
+            paths = fills[param]
+            scan_to_gcode(gcode, paths, param, matrix)
 
     gcode.stop()
 

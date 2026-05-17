@@ -1,3 +1,10 @@
+gcode-text (0.7-1) unstable; urgency=medium
+
+  * Add Z motion control
+  * Add scan conversion for filled areas
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 17 May 2026 14:09:45 -0700
+
 gcode-text (0.6-2) unstable; urgency=medium
 
   * Make python dependencies explicit

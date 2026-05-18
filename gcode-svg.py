@@ -24,6 +24,7 @@ import sys
 import argparse
 import os
 import numbers
+import re
 from typing import Any
 import svgelements # type: ignore
 from svgelements import * # type: ignore
@@ -44,17 +45,108 @@ class SvgValues(Values):
     def set_bounds(self, bounds: Rect) -> None:
         self.bounds = bounds
 
+class SvgColor:
+    red: int
+    green: int
+    blue: int
+    alpha: float
+
+    names = {
+        "black": "#000000",
+        "silver": "#C0C0C0",
+        "gray": "#808080",
+        "white": "#FFFFFF",
+        "maroon": "#800000",
+        "red": "#FF0000",
+        "purple": "#800080",
+        "fuchsia": "#FF00FF",
+        "green": "#008000",
+        "lime": "#00FF00",
+        "olive": "#808000",
+        "yellow": "#FFFF00",
+        "navy": "#000080",
+        "blue": "#0000FF",
+        "teal": "#008080",
+        "aqua": "#00FFFF",
+    }
+
+    def float_value(self, text):
+        return float(text)
+
+    def decimal_value(self, text):
+        if text.endswith('%'):
+            return int(round(int(text[:-1]) * 255 / 100))
+        else:
+            return int(text)
+
+    def hex_value(self, text):
+        if len(text) == 1:
+            return int(text, 16) * 17
+        return int(text, 16)
+
+    def __init__(self, text: str):
+        if text in self.names:
+            text = self.names[text]
+        m = re.fullmatch(r"#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])", text)
+        if m:
+            self.red = self.hex_value(m.group(1))
+            self.green = self.hex_value(m.group(1))
+            self.blue = self.hex_value(m.group(1))
+            self.alpha = 1
+            return
+
+        m = re.fullmatch(r"#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})", text)
+        if m:
+            self.red = self.hex_value(m.group(1))
+            self.green = self.hex_value(m.group(2))
+            self.blue = self.hex_value(m.group(3))
+            self.alpha = 1
+            return
+
+        m = re.fullmatch(r"rgb *\( *([0-9][0-9]*%?) *, *([0-9][0-9]*%?) *, *([0-9][0-9]*%?) *\)", text)
+        if m:
+            self.red = self.decimal_value(m.group(1))
+            self.green = self.decimal_value(m.group(2))
+            self.blue = self.decimal_value(m.group(3))
+            self.alpha = 1
+            return
+
+        m = re.fullmatch(r"rgba *\( *([0-9][0-9]*%?) *, *([0-9][0-9]*%?) *, *([0-9][0-9]*%?) *, *([0-9][0-9]*%?) *\)", text)
+        if m:
+            self.red = self.decimal_value(m.group(1))
+            self.green = self.decimal_value(m.group(2))
+            self.blue = self.decimal_value(m.group(3))
+            self.alpha = self.float_value(m.group(4))
+            return
+
+    def __eq__(self, other):
+        return (self.red == other.red and
+                self.green == other.green and
+                self.blue == other.blue and
+                self.alpha == other.alpha)
+
+    def __str__(self):
+        if self.alpha < 1:
+            return "rgba(%d, %d, %d, %f)" % (self.red, self.green, self.blue, self.alpha)
+        else:
+            return "rgb(%d, %d, %d)" % (self.red, self.green, self.blue)
+
+    def __hash__(self):
+        return hash(str(self))
+
 class Param:
     order: int
-    color: str
+    color: SvgColor
     feed: float
     speed: float
     passes: int
     name: str
     step: float
 
-    def __init__(self, order: int, color: str, feed: float, speed: float, passes: int, name: str, step: float):
+    def __init__(self, order: int, color: str | SvgColor, feed: float, speed: float, passes: int, name: str, step: float):
         self.order = order
+        if isinstance(color, str):
+            color = SvgColor(color)
         self.color = color
         self.feed = feed
         self.speed = speed
@@ -64,7 +156,7 @@ class Param:
 
 class Params:
 
-    params: dict[str, Param]
+    params: dict[SvgColor, Param]
     default: Param
 
     def __init__(self, json_file: str, values: SvgValues):
@@ -80,7 +172,7 @@ class Params:
             if key == "params":
                 for param in value:
                     order = param['order']
-                    color = param['color']
+                    color = SvgColor(param['color'])
                     feed = param['feed']
                     speed = param['speed']
                     passes = param['passes']
@@ -97,7 +189,9 @@ class Params:
                 passes = value['passes']
                 self.default = Param(order, "default", feed, speed, passes, "default", .1)
 
-    def get(self, color: str):
+    def get(self, color: str | SvgColor):
+        if isinstance(color, str):
+            color = SvgColor(color)
         if not color in self.params:
             print('unknown color %s' % color)
             return self.default

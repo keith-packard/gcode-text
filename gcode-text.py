@@ -27,20 +27,21 @@ import os
 import numbers
 from typing import Any
 from io import StringIO
-from lxml import etree # type: ignore
-from svg.path import parse_path # type: ignore
-from svg.path import Path, Move, Line, Arc, CubicBezier, QuadraticBezier, Close # type: ignore
+from lxml import etree  # type: ignore
+from svg.path import parse_path  # type: ignore
+from svg.path import Path, Move, Line, Arc, CubicBezier, QuadraticBezier, Close  # type: ignore
 
-if not os.getenv('GCODE_SKIP_PATH'):
-    sys.path = ['@SHARE_DIR@'] + sys.path
+if not os.getenv("GCODE_SKIP_PATH"):
+    sys.path = ["@SHARE_DIR@"] + sys.path
 
 from gcode_draw import *
+
 
 class TextValues(Values):
 
     def __init__(self):
         super().__init__()
-        self.font = 'TwinSans.svg'
+        self.font = "TwinSans.svg"
         self.oblique = False
         self.border = 0
         self.start_x = None
@@ -55,73 +56,93 @@ class TextValues(Values):
         self.value = None
         self.number = 1
         self.text = None
-        self.align = 'center'
+        self.align = "center"
         self.font_metrics = False
         self.rects = None
         self.file = None
 
 
 def Args():
-    parser = argparse.ArgumentParser(
-        add_help=False,
-        description='Render stroked text'
-        )
+    parser = argparse.ArgumentParser(add_help=False, description="Render stroked text")
     Device.args(parser)
-    parser.add_argument('-r', '--rect', action='store_true',
-                        help='Draw bounding rectangles',
-                        default=None)
-    parser.add_argument('-O', '--oblique', action='store_true',
-                        help='Draw the glyphs using a sheer transform',
-                        default=None)
-    parser.add_argument('--sheer', action='store', type=float,
-                        help='Oblique sheer amount')
-    parser.add_argument('--font', action='store', type=str,
-                        help='SVG font file name',
-                        default=None)
-    parser.add_argument('-t', '--template', action='store',
-                        help='Template file name',
-                        default=None)
-    parser.add_argument('-b', '--border', action='store', type=float,
-                        help='Border width')
-    parser.add_argument('-x', '--start-x', action='store', type=float,
-                        help='Starting X for boxes')
-    parser.add_argument('-y', '--start-y', action='store', type=float,
-                        help='Starting Y for boxes')
-    parser.add_argument('-w', '--width', action='store', type=float,
-                        help='Box width')
-    parser.add_argument('-h', '--height', action='store', type=float,
-                        help='Box height')
-    parser.add_argument('-X', '--delta-x', action='store', type=float,
-                        help='X offset between boxes')
-    parser.add_argument('-Y', '--delta-y', action='store', type=float,
-                        help='Y offset between boxes')
-    parser.add_argument('--final-x', action='store', type=float,
-                        help='Final X position')
-    parser.add_argument('--final-y', action='store', type=float,
-                        help='Final Y position')
-    parser.add_argument('-c', '--columns', action='store', type=int,
-                        help='Number of columns of boxes')
-    parser.add_argument('-v', '--value', action='store', type=float,
-                        help='Initial text numeric value')
-    parser.add_argument('-n', '--number', action='store', type=float,
-                        help='Number of numeric values')
-    parser.add_argument('-T', '--text', action='store',
-                        help='Text string')
-    parser.add_argument('--up', action='store', type=float,
-                        help='Pen up Z position')
-    parser.add_argument('--down', action='store', type=float,
-                        help='Pen down Z position')
-    parser.add_argument('-a', '--align', action='store', type=str,
-                        choices=['left', 'right', 'center'],
-                        default=None)
-    parser.add_argument('--font-metrics', action='store_true',
-                        help='Use font metrics for strings instead of glyph metrics',
-                        default=None)
-    parser.add_argument('--dump-stf', action='store',
-                        help='Dump font in STF format',
-                        default=None)
-    parser.add_argument('file', nargs='*',
-                        help='Text source files')
+    parser.add_argument(
+        "-r",
+        "--rect",
+        action="store_true",
+        help="Draw bounding rectangles",
+        default=None,
+    )
+    parser.add_argument(
+        "-O",
+        "--oblique",
+        action="store_true",
+        help="Draw the glyphs using a sheer transform",
+        default=None,
+    )
+    parser.add_argument(
+        "--sheer", action="store", type=float, help="Oblique sheer amount"
+    )
+    parser.add_argument(
+        "--font", action="store", type=str, help="SVG font file name", default=None
+    )
+    parser.add_argument(
+        "-t", "--template", action="store", help="Template file name", default=None
+    )
+    parser.add_argument(
+        "-b", "--border", action="store", type=float, help="Border width"
+    )
+    parser.add_argument(
+        "-x", "--start-x", action="store", type=float, help="Starting X for boxes"
+    )
+    parser.add_argument(
+        "-y", "--start-y", action="store", type=float, help="Starting Y for boxes"
+    )
+    parser.add_argument("-w", "--width", action="store", type=float, help="Box width")
+    parser.add_argument("-h", "--height", action="store", type=float, help="Box height")
+    parser.add_argument(
+        "-X", "--delta-x", action="store", type=float, help="X offset between boxes"
+    )
+    parser.add_argument(
+        "-Y", "--delta-y", action="store", type=float, help="Y offset between boxes"
+    )
+    parser.add_argument(
+        "--final-x", action="store", type=float, help="Final X position"
+    )
+    parser.add_argument(
+        "--final-y", action="store", type=float, help="Final Y position"
+    )
+    parser.add_argument(
+        "-c", "--columns", action="store", type=int, help="Number of columns of boxes"
+    )
+    parser.add_argument(
+        "-v", "--value", action="store", type=float, help="Initial text numeric value"
+    )
+    parser.add_argument(
+        "-n", "--number", action="store", type=float, help="Number of numeric values"
+    )
+    parser.add_argument("-T", "--text", action="store", help="Text string")
+    parser.add_argument("--up", action="store", type=float, help="Pen up Z position")
+    parser.add_argument(
+        "--down", action="store", type=float, help="Pen down Z position"
+    )
+    parser.add_argument(
+        "-a",
+        "--align",
+        action="store",
+        type=str,
+        choices=["left", "right", "center"],
+        default=None,
+    )
+    parser.add_argument(
+        "--font-metrics",
+        action="store_true",
+        help="Use font metrics for strings instead of glyph metrics",
+        default=None,
+    )
+    parser.add_argument(
+        "--dump-stf", action="store", help="Dump font in STF format", default=None
+    )
+    parser.add_argument("file", nargs="*", help="Text source files")
     args = parser.parse_args()
 
     if args.help:
@@ -129,11 +150,11 @@ def Args():
         sys.exit(0)
 
     if args.version:
-        print("%s" % '@VERSION@')
+        print("%s" % "@VERSION@")
         sys.exit(0)
 
     return args
-    
+
 
 def finite_rects(values):
     return values.rects is not None
@@ -152,19 +173,22 @@ def load_template(template_file, values):
         return
 
     if not isinstance(values.rects, list):
-        print('template rects is not an array', file=sys.stderr)
+        print("template rects is not an array", file=sys.stderr)
         raise TypeError
     for e in tuple(values.rects):
         if not isinstance(e, list):
-            print('rects element %s is not an array' % (e,), file=sys.stderr)
+            print("rects element %s is not an array" % (e,), file=sys.stderr)
             raise TypeError
         if len(e) != 4:
-            print('rects element %s does not contain four values' % (e,), file=sys.stderr)
+            print(
+                "rects element %s does not contain four values" % (e,), file=sys.stderr
+            )
             raise TypeError
         for v in tuple(e):
             if not isinstance(v, numbers.Number):
-                print('rects value %r is not a number' % (v,), file=sys.stderr)
+                print("rects value %r is not a number" % (v,), file=sys.stderr)
                 raise TypeError
+
 
 def get_rect(values):
     if values.rects is not None:
@@ -175,10 +199,10 @@ def get_rect(values):
         while True:
             x = values.start_x
             for c in range(values.columns):
-                yield Rect(Point(x, y), Point(x+values.width, y+values.height))
+                yield Rect(Point(x, y), Point(x + values.width, y + values.height))
                 x += values.delta_x
             y += values.delta_y
-    
+
 
 def get_line(values):
     if values.value != None:
@@ -192,13 +216,15 @@ def get_line(values):
         for l in values.text.splitlines():
             yield l
     for name in values.file:
-        with open(name, "r", encoding='utf-8', errors='ignore') as f:
+        with open(name, "r", encoding="utf-8", errors="ignore") as f:
             for l in f.readlines():
                 yield l.strip()
+
 
 def text_path(gcode: GCode, m: Matrix, s: str):
     draw = MatrixDraw(gcode.get_draw(), m)
     gcode.font.text_path(s, draw)
+
 
 def text_into_rect(gcode: GCode, r: Rect, s: str, values: TextValues):
     if gcode.values.rect:
@@ -276,6 +302,7 @@ def text_into_rect(gcode: GCode, r: Rect, s: str, values: TextValues):
 
     text_path(gcode, matrix, s)
 
+
 def main():
     values = TextValues()
     args = Args()
@@ -295,14 +322,14 @@ def main():
     if args.dump_stf:
         with open(args.dump_stf, "w") as file:
             font.dump_stf(file)
-            print('', file=file)
+            print("", file=file)
         sys.exit(0)
 
     rect_gen = get_rect(values)
     line_gen = get_line(values)
 
     output = sys.stdout
-    if args.output != '-':
+    if args.output != "-":
         output = open(args.output, "w")
 
     gcode = GCode(output, device, values, font)
@@ -317,5 +344,6 @@ def main():
             break
 
     gcode.stop()
+
 
 main()

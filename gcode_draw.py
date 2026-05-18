@@ -26,7 +26,13 @@ import csv
 from io import StringIO
 from typing import Any
 
+
 class Values:
+
+    speed: float
+    feed: float
+    z_feed: float | None
+
     def __init__(self):
         self.inch = True
         self.mm = False
@@ -35,7 +41,7 @@ class Values:
         self.sheer = 0.1
         self.flatness = 0.001
         self.feed = 100
-        self.z_feed = 100
+        self.z_feed = None
         self.speed = 100
         self.template = None
         self.device = None
@@ -76,12 +82,12 @@ class Device:
     setting_values: list[str] = []
     inch: str = "G20\n"
     mm: str = "G21\n"
-    move: str = "G00 X%f Y%f F%f\n"
+    move: str = "G00 X%f Y%f\n"
     feed: bool = True
     speed: bool = False
     y_invert: bool = True
     z_axis: bool = False
-    zmove: str = "G00 Z%f F%f\n"
+    zmove: str = "G01 Z%f F%f\n"
     draw: str = "G01 X%f Y%f F%f\n"
     curve: str = ""
     stop: str = "M30\n"
@@ -148,39 +154,49 @@ class Device:
         with values.config_open(json_file) as file:
             self.set_values(json.load(file))
 
-
     @classmethod
     def args(cls, parser):
-        parser.add_argument('--help', action='store_true',
-                            help='Print usage and exit')
-        parser.add_argument('-V', '--version', action='store_true',
-                            help='Print version and exit')
-        parser.add_argument('--verbose', action='store_true',
-                            help='Print messages during processing')
-        parser.add_argument('-i', '--inch', action='store_true',
-                            help='Use inch units',
-                            default=None)
-        parser.add_argument('-m', '--mm', action='store_true',
-                            help='Use millimeter units',
-                            default=None)
-        parser.add_argument('-f', '--flatness', action='store', type=float,
-                            help='Spline decomposition tolerance')
-        parser.add_argument('--tesselate', action='store_true',
-                            help='Force tesselation of splines',
-                            default=None)
-        parser.add_argument('--feed', action='store', type=float,
-                            help='Feed rate')
-        parser.add_argument('--speed', action='store', type=float,
-                            help='Spindle speed')
-        parser.add_argument('-d', '--device', action='store',
-                            help='Device config file')
-        parser.add_argument('-S', '--settings', action='store',
-                            help='Device-specific settings values')
-        parser.add_argument('-o', '--output', action='store',
-                            help='Output file name',
-                            default='-')
-        parser.add_argument('-C', '--config-dir', action='append',
-                            help='Directory containing device configuration files')
+        parser.add_argument("--help", action="store_true", help="Print usage and exit")
+        parser.add_argument(
+            "-V", "--version", action="store_true", help="Print version and exit"
+        )
+        parser.add_argument(
+            "--verbose", action="store_true", help="Print messages during processing"
+        )
+        parser.add_argument(
+            "-i", "--inch", action="store_true", help="Use inch units", default=None
+        )
+        parser.add_argument(
+            "-m", "--mm", action="store_true", help="Use millimeter units", default=None
+        )
+        parser.add_argument(
+            "-f",
+            "--flatness",
+            action="store",
+            type=float,
+            help="Spline decomposition tolerance",
+        )
+        parser.add_argument(
+            "--tesselate",
+            action="store_true",
+            help="Force tesselation of splines",
+            default=None,
+        )
+        parser.add_argument("--feed", action="store", type=float, help="Feed rate")
+        parser.add_argument("--speed", action="store", type=float, help="Spindle speed")
+        parser.add_argument("-d", "--device", action="store", help="Device config file")
+        parser.add_argument(
+            "-S", "--settings", action="store", help="Device-specific settings values"
+        )
+        parser.add_argument(
+            "-o", "--output", action="store", help="Output file name", default="-"
+        )
+        parser.add_argument(
+            "-C",
+            "--config-dir",
+            action="append",
+            help="Directory containing device configuration files",
+        )
 
 
 class Point:
@@ -219,10 +235,15 @@ class Rect:
         )
 
     def union(self, r: Rect) -> Rect:
-        return Rect(Point(min(self.top_left.x, r.top_left.x),
-                          min(self.top_left.y, r.top_left.y)),
-                    Point(max(self.bottom_right.x, r.bottom_right.x),
-                          max(self.bottom_right.y, r.bottom_right.y)))
+        return Rect(
+            Point(
+                min(self.top_left.x, r.top_left.x), min(self.top_left.y, r.top_left.y)
+            ),
+            Point(
+                max(self.bottom_right.x, r.bottom_right.x),
+                max(self.bottom_right.y, r.bottom_right.y),
+            ),
+        )
 
 
 class Draw:
@@ -367,9 +388,9 @@ class Matrix:
     def distance(self, p: Point) -> Point:
         return Point(self.xx * p.x + self.yx * p.y, self.xy * p.x + self.yy * p.y)
 
-
     def __str__(self):
         return f"[[{self.xx}, {self.xy}, {self.x0}] [{self.yx}, {self.yy}, {self.y0}]]"
+
 
 class Spline:
     a: Point
@@ -423,7 +444,7 @@ class Spline:
     def decompose(self, tolerance: float) -> tuple[Point, ...]:
         if self.error_squared() <= 16 * tolerance * tolerance:
             return (self.d,)
-        (s1, s2) = self.de_casteljau()
+        s1, s2 = self.de_casteljau()
         return s1.decompose(tolerance) + s2.decompose(tolerance)
 
 
@@ -559,6 +580,7 @@ class MeasureDraw(Draw):
 
 from gcode_font import *
 
+
 class GCode(Draw):
     f: Any
     device: Device
@@ -587,38 +609,46 @@ class GCode(Draw):
 
     def set_feed(self, feed: float) -> None:
         self.values.feed = feed
-        
+
+    def set_z_feed(self, z_feed: float | None) -> None:
+        self.values.z_feed = z_feed
+
     def set_speed(self, speed: float) -> None:
         self.values.speed = speed
-        
-    def extra_params(self, drawing):
-        extra = ()
+
+    def extra_params(self, z_feed: bool = False):
+        extra = []
         if self.device.feed:
-            extra += (self.values.feed,)
-        if drawing and self.device.speed:
-            extra += (self.values.speed,)
-        return extra
+            if z_feed and self.values.z_feed is not None:
+                feed = self.values.z_feed
+            else:
+                feed = self.values.feed
+            extra += [feed]
+        if self.device.speed:
+            extra += [self.values.speed]
+        return tuple(extra)
 
     def zmove(self, z: float):
         if self.last_z != z and self.device.z_axis:
-            s = self.device.zmove % ((z,) + self.extra_params(True))
+            e = self.extra_params(z_feed=True)
+            s = self.device.zmove % ((z,) + self.extra_params(z_feed=True))
             print(s, file=self.f, end="")
         super().zmove(z)
 
     def move(self, x: float, y: float):
         self.zmove(self.values.up)
-        s = self.device.move % ((x, y) + self.extra_params(False))
+        s = self.device.move % (x, y)
         print(s, file=self.f, end="")
         super().move(x, y)
 
     def draw(self, x: float, y: float):
         self.zmove(self.values.down)
-        s = self.device.draw % ((x, y) + self.extra_params(True))
+        s = self.device.draw % ((x, y) + self.extra_params())
         print(s, file=self.f, end="")
         super().draw(x, y)
 
     def curve(self, x1: float, y1: float, x2: float, y2: float, x3: float, y3: float):
-        s = self.device.curve % ((x1, y1, x2, y2, x3, y3) + self.extra_params(True))
+        s = self.device.curve % ((x1, y1, x2, y2, x3, y3) + self.extra_params())
         print(s, file=self.f, end="")
         super().curve(x1, y1, x2, y2, x3, y3)
 
@@ -629,4 +659,3 @@ class GCode(Draw):
         if self.device.curve == "" or self.values.tesselate:
             return LineDraw(self, self.values.flatness)
         return self
-

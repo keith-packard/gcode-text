@@ -88,7 +88,7 @@ foreach font : fonts
   endif
 endforeach
 
-python_env = environment({'PYTHONPATH': meson.build_root(), 'GCODE_SKIP_PATH': 'true'})
+python_env = environment({'PYTHONPATH': meson.project_build_root(), 'GCODE_SKIP_PATH': 'true'})
 
 gcode_draw = configure_file(input: 'gcode_draw.py',
 			    output: 'gcode_draw.py',

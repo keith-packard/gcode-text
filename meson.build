@@ -47,6 +47,8 @@ mypy = find_program('mypy')
 
 python = find_program('python3')
 
+black = find_program('black')
+
 nickle = find_program('nickle')
 
 gcode_text = configure_file(input: 'gcode-text.py',
@@ -110,6 +112,11 @@ foreach py : [gcode_text, gcode_svg]
        python,
        env: python_env,
        args: [py, '--version']
+      )
+
+  test('black',
+       black,
+       args: py
       )
 endforeach
 

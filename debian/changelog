@@ -1,3 +1,10 @@
+gcode-text (0.8-1) unstable; urgency=medium
+
+  * Add --x-off and --y-off to gcode-svg
+  * Match colors by value instead of by string in gcode-svg
+
+ -- Keith Packard <keithp@keithp.com>  Sun, 17 May 2026 21:54:27 -0700
+
 gcode-text (0.7-1) unstable; urgency=medium
 
   * Add Z motion control

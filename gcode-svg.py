@@ -385,13 +385,13 @@ def scan_to_gcode(gcode: GCode, paths: list[svgelements.Path], param: Param, mat
     bounds = values.bounds
 
     for i in range(param.passes):
-        y = values.bounds.top_left.y
+        y = bounds.top_left.y
         while y <= bounds.bottom_right.y:
             spans = edge_draw.spans(y)
             if spans:
                 spans.sort()
                 winding = 0
-                x = 0
+                x = bounds.top_left.x
                 for span in spans:
                     if winding != 0 and x != span.x:
                         draw.move(x, y)
@@ -412,6 +412,12 @@ def Args():
     parser.add_argument('-p', '--params', action='store',
                         help='Parameter file name',
                         default=None)
+    parser.add_argument('-x', '--x-off', action='store',
+                        help='X offset drawing from origin',
+                        default='0')
+    parser.add_argument('-y', '--y-off', action='store',
+                        help='Y offset drawing from origin',
+                        default='0')
     parser.add_argument('file', nargs='*',
                         help='SVG input files')
 
@@ -473,10 +479,15 @@ def main():
         units_per_inch = 25.4
     else:
         units_per_inch = 1
-        
-    matrix = matrix.scale(units_per_inch / values.ppi, units_per_inch / values.ppi)
 
-    if device.y_invert:
+    scale = units_per_inch / values.ppi
+        
+    matrix = matrix.scale(scale, scale)
+
+    if args.x_off or args.y_off:
+        matrix = matrix.translate(float(args.x_off) / scale, float(args.y_off) / scale)
+
+    if device.y_invert and values.bounds:
         matrix = matrix.translate(0, values.bounds.bottom_right.y + values.bounds.top_left.y);
         matrix = matrix.scale(1, -1)
 

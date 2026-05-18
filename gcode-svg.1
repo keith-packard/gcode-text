@@ -26,6 +26,14 @@ Use inch units in the generated file. This is the default.
 .BI "-m,--mm"
 Use millimeter units in the generated file.
 .TP
+.BI "-x,--x-off"
+Offset drawing in X by this much from the device origin. This value is
+in the output units.
+.TP
+.BI "-y,--y-off"
+Offset drawing in y by this much from the device origin. This value is
+in the output units.
+.TP
 .BI "--tesselate"
 Tesselate splines even when the output device supports them natively.
 .TP
@@ -68,7 +76,7 @@ This file contains device-specific output customization, providing
 control over the strings used to drive the target. This JSON file
 should contain a single dictionary with keys mapping to string
 values. Each value can contain embedded newlines as necessary;
-gcode-text doesn't emit any newlines itself. If not provided in the
+gcode-svg doesn't emit any newlines itself. If not provided in the
 configuration file (or if no configuration file is provided), the
 default values shown below will be used instead.
 .TP

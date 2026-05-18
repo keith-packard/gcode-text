@@ -368,6 +368,9 @@ class Matrix:
         return Point(self.xx * p.x + self.yx * p.y, self.xy * p.x + self.yy * p.y)
 
 
+    def __str__(self):
+        return f"[[{self.xx}, {self.xy}, {self.x0}] [{self.yx}, {self.yy}, {self.y0}]]"
+
 class Spline:
     a: Point
     b: Point

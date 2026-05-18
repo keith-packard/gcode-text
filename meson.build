@@ -17,7 +17,7 @@
 #
 project('gcode-text',
 	license : 'GPLv2',
-	version: '0.7'
+	version: '0.8'
        )
 
 fs = import('fs')
